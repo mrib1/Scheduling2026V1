@@ -60,10 +60,9 @@ class FastScheduler {
         const schedule: GeneratedSchedule = [];
         const tracker = new BitTracker(this.therapists.length, this.clients.length);
         const lunchCount = new Array(NUM_SLOTS).fill(0);
-        const maxConcurrentLunches = Math.max(1, Math.floor(this.therapists.length * 0.35));
+        const maxConcurrentLunches = Math.max(1, Math.floor(this.therapists.length * 0.4));
         const tSessionCount = new Array(this.therapists.length).fill(0);
 
-        // 1. Initial Constraints
         this.callouts.forEach(co => {
             if (isDateAffectedByCalloutRange(this.selectedDate, co.startDate, co.endDate)) {
                 const s = Math.max(0, Math.floor((timeToMinutes(co.startTime) - OP_START) / SLOT_SIZE));
@@ -78,7 +77,6 @@ class FastScheduler {
             }
         });
 
-        // 2. Seed with Initial Schedule (if valid)
         if (initialSchedule) {
             initialSchedule.forEach(entry => {
                 if (entry.day !== this.day) return;
@@ -86,7 +84,6 @@ class FastScheduler {
                 const ci = this.clients.findIndex(c => c.id === entry.clientId);
                 const s = Math.max(0, Math.floor((timeToMinutes(entry.startTime) - OP_START) / SLOT_SIZE));
                 const l = Math.ceil((timeToMinutes(entry.endTime) - timeToMinutes(entry.startTime)) / SLOT_SIZE);
-                
                 if (ti >= 0 && (ci >= 0 || entry.clientId === null) && tracker.isTFree(ti, s, l) && (ci < 0 || tracker.isCFree(ci, s, l))) {
                     if (ci >= 0 && !this.meetsInsurance(this.therapists[ti], this.clients[ci])) return;
                     schedule.push({ ...entry, id: generateId() });
@@ -96,11 +93,10 @@ class FastScheduler {
             });
         }
 
-        // 3. Mandatory Lunches for working staff
         const shuffledT = this.therapists.map((t, ti) => ({t, ti})).sort(() => Math.random() - 0.5);
         shuffledT.forEach(q => {
-            const ls = (timeToMinutes(IDEAL_LUNCH_WINDOW_START) - OP_START) / SLOT_SIZE;
-            const le = (timeToMinutes(IDEAL_LUNCH_WINDOW_END_FOR_START) - OP_START) / SLOT_SIZE;
+            const ls = Math.floor((timeToMinutes(IDEAL_LUNCH_WINDOW_START) - OP_START) / SLOT_SIZE);
+            const le = Math.floor((timeToMinutes(IDEAL_LUNCH_WINDOW_END_FOR_START) - OP_START) / SLOT_SIZE);
             const opts = [];
             for (let s = ls; s <= le; s++) opts.push(s);
             opts.sort((a, b) => (lunchCount[a] + lunchCount[a+1]) - (lunchCount[b] + lunchCount[b+1]) + (Math.random() - 0.5));
@@ -114,35 +110,23 @@ class FastScheduler {
             }
         });
 
-        // 4. Client Coverage (ABA)
+        const ROLE_RANK: Record<string, number> = { "BCBA": 0, "Clinical Fellow": 1, "RBT": 2, "3 STAR": 2, "Technician": 3, "BT": 4, "Other": 2 };
         const shuffledC = this.clients.map((c, ci) => ({c, ci})).sort(() => Math.random() - 0.5);
         shuffledC.forEach(target => {
             for (let s = 0; s < NUM_SLOTS; s++) {
                 if (tracker.isCFree(target.ci, s, 1)) {
-                    // Find therapists
                     const quals = this.therapists.map((t, ti) => ({t, ti})).filter(x => this.meetsInsurance(x.t, target.c)).sort((a, b) => {
-                        // BCBA Rule
-                        const aNeed = (a.t.role === 'BCBA' && tSessionCount[a.ti] === 0);
-                        const bNeed = (b.t.role === 'BCBA' && tSessionCount[b.ti] === 0);
-                        if (aNeed && !bNeed) return -1;
-                        if (bNeed && !aNeed) return 1;
-
-                        const aHas = tracker.cT[target.ci].has(a.ti);
-                        const bHas = tracker.cT[target.ci].has(b.ti);
-                        if (aHas !== bHas) {
-                           if (aHas && a.t.role !== 'BCBA') return -1;
-                           if (bHas && b.t.role !== 'BCBA') return 1;
-                        }
-                        const rank: any = { "BCBA": 0, "Clinical Fellow": 1, "RBT": 2, "3 STAR": 2, "Technician": 3 };
-                        return rank[b.t.role] - rank[a.t.role];
+                        const aRank = ROLE_RANK[a.t.role] || 0;
+                        const bRank = ROLE_RANK[b.t.role] || 0;
+                        if (aRank !== bRank) return bRank - aRank; // Lower role (higher rank) first
+                        return tSessionCount[a.ti] - tSessionCount[b.ti];
                     });
 
                     for (const q of quals) {
                         if (tracker.cT[target.ci].size >= 3 && !tracker.cT[target.ci].has(q.ti) && target.c.insuranceRequirements.includes("MD_MEDICAID")) continue;
-                        
                         for (let len = 12; len >= 4; len--) {
                             if (s + len <= NUM_SLOTS && tracker.isCFree(target.ci, s, len) && tracker.isTFree(q.ti, s, len)) {
-                                if (schedule.some(x => x.clientId === target.c.id && x.therapistId === q.t.id && timeToMinutes(x.endTime) === OP_START + s * SLOT_SIZE)) continue;
+                                if (this.isBTB(schedule, target.c.id, q.t.id, s)) continue;
                                 schedule.push(this.ent(target.ci, q.ti, s, len, 'ABA'));
                                 tracker.book(q.ti, target.ci, s, len);
                                 tSessionCount[q.ti]++;
@@ -154,9 +138,11 @@ class FastScheduler {
                 }
             }
         });
-
-        // 5. Cleanup
         return schedule.filter(e => e.sessionType !== 'IndirectTime' || schedule.some(s => s.therapistId === e.therapistId && s.sessionType !== 'IndirectTime'));
+    }
+
+    private isBTB(s: GeneratedSchedule, cid: string, tid: string, startSlot: number) {
+        return s.some(x => x.clientId === cid && x.therapistId === tid && (timeToMinutes(x.endTime) === OP_START + startSlot * SLOT_SIZE || timeToMinutes(x.startTime) === OP_START + (startSlot + 1) * SLOT_SIZE));
     }
 
     private ent(ci: number, ti: number, s: number, l: number, type: SessionType): ScheduleEntry {
@@ -165,16 +151,45 @@ class FastScheduler {
         return { id: generateId(), clientId: client ? client.id : null, clientName: client ? client.name : null, therapistId: therapist.id, therapistName: therapist.name, day: this.day, startTime: minutesToTime(OP_START + s * SLOT_SIZE), endTime: minutesToTime(OP_START + (s + l) * SLOT_SIZE), sessionType: type };
     }
 
-    public calculateScore(s: GeneratedSchedule): number {
+    public async run(initialSchedule?: GeneratedSchedule): Promise<GeneratedSchedule> {
+        let best: GeneratedSchedule = [];
+        let minScore = Infinity;
+        for (let i = 0; i < 400; i++) {
+            const s = this.createSchedule(initialSchedule);
+            const score = this.calculateScore(s);
+            if (score < minScore) { best = s; minScore = score; if (minScore === 0) break; }
+        }
+        const ROLE_PRIO: any = { "BCBA": 5, "Clinical Fellow": 4, "RBT": 3, "3 STAR": 3, "Technician": 2, "BT": 1, "Other": 0 };
+        this.therapists.sort((a, b) => (ROLE_PRIO[b.role] || 0) - (ROLE_PRIO[a.role] || 0)).forEach(th => {
+            for (let time = OP_START; time <= OP_END - 15; time += 15) {
+                if (!best.some(x => x.therapistId === th.id && sessionsOverlap(x.startTime, x.endTime, minutesToTime(time), minutesToTime(time + 15)))) {
+                    best.push({ id: generateId(), clientId: null, clientName: null, therapistId: th.id, therapistName: th.name, day: this.day, startTime: minutesToTime(time), endTime: minutesToTime(time + 15), sessionType: 'AdminTime' });
+                }
+            }
+        });
+        return best;
+    }
+
+    private calculateScore(s: GeneratedSchedule): number {
         const errs = validateFullSchedule(s, this.clients, this.therapists, this.selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, []);
         if (errs.length > 0) return 1000000 + errs.length;
         
         let penalty = 0;
-        const ROLE_PRIO: any = { "BCBA": 4, "Clinical Fellow": 3, "RBT": 2, "3 STAR": 2, "Technician": 1 };
-        const indirect = this.therapists.map(t => ({ p: ROLE_PRIO[t.role], time: s.filter(x => x.therapistId === t.id && (x.sessionType === 'IndirectTime' || x.sessionType === 'AdminTime')).length }));
-        for (let i = 0; i < indirect.length; i++) {
-            for (let j = 0; j < indirect.length; j++) {
-                if (indirect[i].p > indirect[j].p && indirect[i].time < indirect[j].time) penalty += (indirect[j].time - indirect[i].time) * 10;
+        const ROLE_PRIO: any = { "BCBA": 5, "Clinical Fellow": 4, "RBT": 3, "3 STAR": 3, "Technician": 2, "BT": 1, "Other": 0 };
+        const billableTimes = new Map<string, number>();
+        s.forEach(e => {
+            if (e.sessionType === 'ABA' || e.sessionType.startsWith('AlliedHealth_')) {
+                const dur = timeToMinutes(e.endTime) - timeToMinutes(e.startTime);
+                billableTimes.set(e.therapistId, (billableTimes.get(e.therapistId) || 0) + dur);
+            }
+        });
+
+        const data = this.therapists.map(t => ({ p: ROLE_PRIO[t.role] || 0, billable: billableTimes.get(t.id) || 0 }));
+        for (let i = 0; i < data.length; i++) {
+            for (let j = 0; j < data.length; j++) {
+                if (data[i].p > data[j].p && data[i].billable > data[j].billable) {
+                    penalty += (data[i].billable - data[j].billable) * 100;
+                }
             }
         }
         return penalty;
@@ -190,33 +205,7 @@ export async function runCsoAlgorithm(
 ): Promise<GAGenerationResult> {
     const day = getDayOfWeekFromDate(selectedDate);
     const algo = new FastScheduler(clients, therapists, day, selectedDate, callouts);
-    
-    let best: GeneratedSchedule = [];
-    let minScore = Infinity;
-    
-    for (let i = 0; i < 200; i++) {
-        const s = algo.createSchedule(initialScheduleForOptimization);
-        const score = algo.calculateScore(s);
-        if (score < minScore) { best = s; minScore = score; if (minScore === 0) break; }
-    }
-
-    // Final Filler
-    const ROLE_PRIO: any = { "BCBA": 4, "Clinical Fellow": 3, "RBT": 2, "3 STAR": 2, "Technician": 1 };
-    therapists.sort((a, b) => ROLE_PRIO[b.role] - ROLE_PRIO[a.role]).forEach(th => {
-        for (let time = OP_START; time <= OP_END - 15; time += 15) {
-            if (!best.some(x => x.therapistId === th.id && sessionsOverlap(x.startTime, x.endTime, minutesToTime(time), minutesToTime(time + 15)))) {
-                best.push({ id: generateId(), clientId: null, clientName: null, therapistId: th.id, therapistName: th.name, day: day, startTime: minutesToTime(time), endTime: minutesToTime(time + 15), sessionType: 'AdminTime' });
-            }
-        }
-    });
-
-    const finalErrors = validateFullSchedule(best, clients, therapists, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
-    return {
-        schedule: best,
-        finalValidationErrors: finalErrors,
-        generations: 0,
-        bestFitness: finalErrors.length,
-        success: finalErrors.length === 0,
-        statusMessage: finalErrors.length === 0 ? "Perfect!" : "Nearly Perfect."
-    };
+    const schedule = await algo.run(initialScheduleForOptimization);
+    const errors = validateFullSchedule(schedule, clients, therapists, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
+    return { schedule, finalValidationErrors: errors, generations: 0, bestFitness: errors.length, success: errors.length === 0, statusMessage: errors.length === 0 ? "Perfect!" : "Nearly Perfect." };
 }

@@ -23,7 +23,7 @@ for (let h = 0; h < 24; h++) {
   }
 }
 
-export const ALL_THERAPIST_ROLES: TherapistRole[] = ["RBT", "BCBA", "Clinical Fellow", "3 STAR", "Technician", "Other"];
+export const ALL_THERAPIST_ROLES: TherapistRole[] = ["RBT", "BCBA", "Clinical Fellow", "3 STAR", "Technician", "BT", "Other"];
 export const ALL_ALLIED_HEALTH_SERVICES: AlliedHealthServiceType[] = ["OT", "SLP"];
 export const ALL_SESSION_TYPES: string[] = ['ABA', 'AlliedHealth_OT', 'AlliedHealth_SLP', 'IndirectTime'];
 

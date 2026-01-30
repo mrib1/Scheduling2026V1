@@ -17,7 +17,7 @@ export interface Team {
 
 export type AlliedHealthServiceType = 'OT' | 'SLP';
 export type SessionType = 'ABA' | 'AlliedHealth_OT' | 'AlliedHealth_SLP' | 'IndirectTime' | 'AdminTime';
-export type TherapistRole = "RBT" | "BCBA" | "Clinical Fellow" | "3 STAR" | "Technician" | "Other";
+export type TherapistRole = "RBT" | "BCBA" | "Clinical Fellow" | "3 STAR" | "Technician" | "BT" | "Other";
 
 
 export interface AlliedHealthNeed {
