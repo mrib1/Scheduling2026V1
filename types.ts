@@ -16,8 +16,8 @@ export interface Team {
 }
 
 export type AlliedHealthServiceType = 'OT' | 'SLP';
-export type SessionType = 'ABA' | 'AlliedHealth_OT' | 'AlliedHealth_SLP' | 'IndirectTime';
-export type TherapistRole = "RBT" | "BCBA" | "Clinical Fellow" | "3 STAR" | "Technician" | "Other";
+export type SessionType = 'ABA' | 'AlliedHealth_OT' | 'AlliedHealth_SLP' | 'IndirectTime' | 'AdminTime';
+export type TherapistRole = "BCBA" | "CF" | "STAR 3" | "STAR 2" | "STAR 1" | "RBT" | "BT" | "Other";
 
 
 export interface AlliedHealthNeed {
@@ -32,6 +32,7 @@ export interface Client {
   id:string;
   name: string;
   teamId?: string;
+  color?: string;
   /**
    * List of qualifications a therapist must have to work with this client.
    * "MD_MEDICAID" is a special value checked by the validation rule MD_MEDICAID_LIMIT_VIOLATED.
@@ -43,6 +44,7 @@ export interface Client {
 export interface Therapist {
   id: string;
   name: string;
+  role: TherapistRole;
   teamId?: string;
   qualifications: string[];
   canProvideAlliedHealth: AlliedHealthServiceType[];
@@ -96,6 +98,7 @@ export interface SettingsPanelProps {
 export interface ScheduleViewProps {
   schedule: GeneratedSchedule;
   therapists: Therapist[]; // These are the *displayed* therapists
+  clients: Client[];
   availableTeams: Team[];
   scheduledFullDate: Date | null;
   onMoveScheduleEntry: (draggedEntryId: string, newTherapistId: string, newStartTime: string) => void;

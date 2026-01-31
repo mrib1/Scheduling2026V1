@@ -3,6 +3,16 @@
 
 const STORAGE_KEY_PREFIX = 'aba_scheduler_db_';
 
+const getStorage = () => {
+  if (typeof localStorage !== 'undefined') return localStorage;
+  if (typeof global !== 'undefined' && (global as any).localStorage) return (global as any).localStorage;
+  return {
+    getItem: (key: string) => null,
+    setItem: (key: string, value: string) => {},
+    removeItem: (key: string) => {}
+  };
+};
+
 // Initial Sample Data
 const initialTeams = [
   { id: 'team-1', name: 'Red Team', color: '#EF4444' },
@@ -102,13 +112,14 @@ class QueryBuilder {
 
     // Initialize storage if needed
     const key = STORAGE_KEY_PREFIX + table;
-    if (!localStorage.getItem(key)) {
+    const storage = getStorage();
+    if (!storage.getItem(key)) {
       let data: any[] = [];
       if (table === 'teams') data = initialTeams;
       else if (table === 'therapists') data = initialTherapists;
       else if (table === 'clients') data = initialClients;
       else if (table === 'settings') data = initialSettings;
-      localStorage.setItem(key, JSON.stringify(data));
+      storage.setItem(key, JSON.stringify(data));
     }
   }
 
@@ -183,9 +194,10 @@ class QueryBuilder {
   // Handle promise execution
   then(resolve: (value: { data: any, error: any }) => void, reject: (reason?: any) => void) {
     const key = STORAGE_KEY_PREFIX + this.table;
+    const storage = getStorage();
     let allRows: any[] = [];
     try {
-      const stored = localStorage.getItem(key);
+      const stored = storage.getItem(key);
       allRows = stored ? JSON.parse(stored) : [];
     } catch (e) {
       allRows = [];
@@ -198,7 +210,7 @@ class QueryBuilder {
       if (this.action === 'insert') {
         const newRow = { ...this.payload, id: this.payload.id || `mock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` };
         allRows.push(newRow);
-        localStorage.setItem(key, JSON.stringify(allRows));
+        storage.setItem(key, JSON.stringify(allRows));
         this.client._notify(this.table);
         resultData = newRow;
       } else if (this.action === 'update') {
@@ -209,14 +221,14 @@ class QueryBuilder {
           }
           return item;
         });
-        localStorage.setItem(key, JSON.stringify(allRows));
+        storage.setItem(key, JSON.stringify(allRows));
         this.client._notify(this.table);
         resultData = allRows.filter(item => idsToUpdate.includes(item.id));
       } else if (this.action === 'delete') {
         const idsToDelete = allRows.filter(item => this.filters.every(f => f(item))).map(i => i.id);
         const keptRows = allRows.filter(item => !idsToDelete.includes(item.id));
         const deletedRows = allRows.filter(item => idsToDelete.includes(item.id));
-        localStorage.setItem(key, JSON.stringify(keptRows));
+        storage.setItem(key, JSON.stringify(keptRows));
         this.client._notify(this.table);
         resultData = deletedRows;
       } else if (this.action === 'upsert') {
@@ -231,7 +243,7 @@ class QueryBuilder {
           newRow = { ...row, id: row.id || `mock-${Date.now()}` };
           allRows.push(newRow);
         }
-        localStorage.setItem(key, JSON.stringify(allRows));
+        storage.setItem(key, JSON.stringify(allRows));
         this.client._notify(this.table);
         resultData = newRow;
       } else {

@@ -174,10 +174,10 @@ export const validateSessionEntry = (
      if (duration !== 30) errors.push({ ruleId: "LUNCH_DURATION_INVALID", message: `Lunch/Indirect Time must be exactly 30 minutes.`});
   }
 
-  if (sessionType === 'IndirectTime' && clientId !== null) {
-    errors.push({ ruleId: "INDIRECT_TIME_CLIENT_SPECIFIED", message: "Client must be N/A for IndirectTime." });
+  if ((sessionType === 'IndirectTime' || sessionType === 'AdminTime') && clientId !== null) {
+    errors.push({ ruleId: "INDIRECT_TIME_CLIENT_SPECIFIED", message: `Client must be N/A for ${sessionType}.` });
   }
-  if (sessionType !== 'IndirectTime' && clientId === null) {
+  if (sessionType !== 'IndirectTime' && sessionType !== 'AdminTime' && clientId === null) {
     errors.push({ ruleId: "CLIENT_REQUIRED_FOR_SESSION", message: `Client must be specified for ${sessionType}.` });
   }
 
@@ -300,7 +300,7 @@ export const validateFullSchedule = (
     }
 
     const lunchSessions = therapistSessions.filter(s =>
-        s.sessionType === 'IndirectTime' && s.clientId === null 
+        (s.sessionType === 'IndirectTime' || s.sessionType === 'AdminTime') && s.clientId === null
     );
 
     if (billableSessions.length > 0) { 
@@ -309,29 +309,26 @@ export const validateFullSchedule = (
                 ruleId: "MISSING_LUNCH_BREAK",
                 message: `Therapist ${therapist.name} has billable work but no lunch break scheduled.`
             });
-        } else if (lunchSessions.length > 1) {
-            allErrors.push({
-                ruleId: "MULTIPLE_LUNCHES",
-                message: `Therapist ${therapist.name} has ${lunchSessions.length} lunch breaks. Only one 30-minute lunch is allowed.`
-            });
         } else { 
-            const lunch = lunchSessions[0];
-            const lunchDuration = timeToMinutes(lunch.endTime) - timeToMinutes(lunch.startTime);
-            if (lunchDuration !== 30) {
-                allErrors.push({
-                    ruleId: "LUNCH_DURATION_INVALID",
-                    message: `Therapist ${therapist.name}'s lunch break is ${lunchDuration} minutes. It must be exactly 30 minutes.`
-                });
-            }
-            const lunchStartMinutes = timeToMinutes(lunch.startTime);
-            const idealWindowStartMinutes = timeToMinutes(LUNCH_COVERAGE_START_TIME);
-            const idealWindowEndMinutesForLunchEnd = timeToMinutes(LUNCH_COVERAGE_END_TIME);
-            const latestIdealStartTimeFor30MinLunch = idealWindowEndMinutesForLunchEnd - 30;
+            // Check if AT LEAST ONE session is a valid lunch (IndirectTime in window)
+            const validLunches = lunchSessions.filter(s => {
+                if (s.sessionType !== 'IndirectTime') return false;
+                const lunchStartMinutes = timeToMinutes(s.startTime);
+                const idealWindowStartMinutes = timeToMinutes(LUNCH_COVERAGE_START_TIME);
+                const idealWindowEndMinutesForLunchEnd = timeToMinutes(LUNCH_COVERAGE_END_TIME);
+                const latestIdealStartTimeFor30MinLunch = idealWindowEndMinutesForLunchEnd - 30;
+                return lunchStartMinutes >= idealWindowStartMinutes && lunchStartMinutes <= latestIdealStartTimeFor30MinLunch;
+            });
 
-            if (lunchStartMinutes < idealWindowStartMinutes || lunchStartMinutes > latestIdealStartTimeFor30MinLunch) {
-                 allErrors.push({
+            if (validLunches.length === 0) {
+                allErrors.push({
                     ruleId: "LUNCH_OUTSIDE_WINDOW",
-                    message: `Therapist ${therapist.name}'s lunch (${to12HourTime(lunch.startTime)}-${to12HourTime(lunch.endTime)}) is outside the core window (${to12HourTime(LUNCH_COVERAGE_START_TIME)} - ${to12HourTime(LUNCH_COVERAGE_END_TIME)}, start by ${to12HourTime(minutesToTime(latestIdealStartTimeFor30MinLunch))}).`
+                    message: `Therapist ${therapist.name} has no valid lunch break (30min IndirectTime) within the core window (${to12HourTime(LUNCH_COVERAGE_START_TIME)} - ${to12HourTime(LUNCH_COVERAGE_END_TIME)}).`
+                });
+            } else if (validLunches.length > 1) {
+                allErrors.push({
+                    ruleId: "MULTIPLE_LUNCHES",
+                    message: `Therapist ${therapist.name} has ${validLunches.length} lunch sessions in the core window. Only one is allowed.`
                 });
             }
         }
@@ -393,6 +390,7 @@ export const validateFullSchedule = (
           }, [] as {start: number, end: number}[]);
 
           const clientABASessionsToday = clientSessionsToday.filter(s => s.sessionType === 'ABA');
+          const clientAHSessionsToday = clientSessionsToday.filter(s => s.sessionType.startsWith('AlliedHealth_'));
 
           for (let intervalStart = opStartMinutes; intervalStart < opEndMinutes; intervalStart += 15) {
             const intervalEnd = intervalStart + 15;
@@ -401,6 +399,13 @@ export const validateFullSchedule = (
                 intervalStart < unavailablePeriod.end && intervalEnd > unavailablePeriod.start
             );
             if (isDuringClientCallout) continue; 
+
+            const isDuringAH = clientAHSessionsToday.some(session => {
+                const sessionStartMinutes = timeToMinutes(session.startTime);
+                const sessionEndMinutes = timeToMinutes(session.endTime);
+                return intervalStart < sessionEndMinutes && intervalEnd > sessionStartMinutes;
+            });
+            if (isDuringAH) continue;
 
             const isCoveredByABASession = clientABASessionsToday.some(session => {
                 const sessionStartMinutes = timeToMinutes(session.startTime);

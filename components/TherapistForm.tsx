@@ -1,14 +1,14 @@
 
 import React, { useState } from 'react';
-import { Therapist, TherapistFormProps, AlliedHealthServiceType } from '../types';
-import { ALL_ALLIED_HEALTH_SERVICES } from '../constants';
+import { Therapist, TherapistFormProps, AlliedHealthServiceType, TherapistRole } from '../types';
+import { ALL_ALLIED_HEALTH_SERVICES, ALL_THERAPIST_ROLES } from '../constants';
 import { TrashIcon } from './icons/TrashIcon';
 import SearchableMultiSelectDropdown from './SearchableMultiSelectDropdown';
 
 const TherapistForm: React.FC<TherapistFormProps> = ({ therapist, availableTeams, availableInsuranceQualifications, onUpdate, onRemove }) => {
   const [formData, setFormData] = useState<Therapist>(therapist);
 
-  const handleInputChange = (field: keyof Omit<Therapist, 'canCoverIndirect'>, value: any) => {
+  const handleInputChange = (field: keyof Therapist, value: any) => {
     const newFormData = { ...formData, [field]: value };
     setFormData(newFormData);
     onUpdate(newFormData);
@@ -44,21 +44,36 @@ const TherapistForm: React.FC<TherapistFormProps> = ({ therapist, availableTeams
         </button>
       </div>
 
-      <div>
-        <label htmlFor={`teamId-${therapist.id}`} className="block text-sm font-medium text-slate-600 mb-1">Team:</label>
-        <select
-          id={`teamId-${therapist.id}`}
-          value={formData.teamId || ''}
-          onChange={(e) => handleInputChange('teamId', e.target.value)}
-          className="form-select block w-full sm:w-1/2 p-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="">Unassigned</option>
-          {availableTeams.map(team => (
-            <option key={team.id} value={team.id} style={{ color: team.color }}>
-              {team.name}
-            </option>
-          ))}
-        </select>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor={`role-${therapist.id}`} className="block text-sm font-medium text-slate-600 mb-1">Role:</label>
+          <select
+            id={`role-${therapist.id}`}
+            value={formData.role || 'BT'}
+            onChange={(e) => handleInputChange('role', e.target.value as TherapistRole)}
+            className="form-select block w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          >
+            {ALL_THERAPIST_ROLES.map(role => (
+              <option key={role} value={role}>{role}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor={`teamId-${therapist.id}`} className="block text-sm font-medium text-slate-600 mb-1">Team:</label>
+          <select
+            id={`teamId-${therapist.id}`}
+            value={formData.teamId || ''}
+            onChange={(e) => handleInputChange('teamId', e.target.value)}
+            className="form-select block w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Unassigned</option>
+            {availableTeams.map(team => (
+              <option key={team.id} value={team.id} style={{ color: team.color }}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       
       <div>

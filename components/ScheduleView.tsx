@@ -5,6 +5,7 @@ import { TIME_SLOTS_H_MM, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS
 import { UserGroupIcon } from './icons/UserGroupIcon';
 import { PencilIcon } from './icons/PencilIcon';
 import { to12HourTime } from '../utils/validationService';
+import { getClientColor, getContrastText } from '../utils/colorUtils';
 
 const timeToMinutes = (time: string): number => {
   if (!time || !time.includes(':')) return 0;
@@ -25,12 +26,31 @@ const generateDisplayTimeSlots = (): string[] => {
 };
 const displayTimeSlots = generateDisplayTimeSlots();
 
-const getSessionTypeStyling = (sessionType: SessionType): { display: string; classes: string } => {
+const getSessionTypeStyling = (sessionType: SessionType, clientId: string | null, clients: Client[]): { display: string; classes: string; style?: React.CSSProperties } => {
+  const client = clientId ? clients.find(c => c.id === clientId) : null;
+  const clientColor = client ? (client.color || getClientColor(client.id)) : null;
+  const textColor = clientColor ? getContrastText(clientColor) : null;
+
   switch (sessionType) {
-    case 'ABA': return { display: 'ABA', classes: 'bg-blue-100 border-blue-300 text-blue-700' };
-    case 'AlliedHealth_OT': return { display: 'OT', classes: 'bg-green-100 border-green-300 text-green-700' };
-    case 'AlliedHealth_SLP': return { display: 'SLP', classes: 'bg-purple-100 border-purple-300 text-purple-700' };
-    case 'IndirectTime': return { display: 'Lunch/Indirect', classes: 'bg-yellow-100 border-yellow-300 text-yellow-700' };
+    case 'ABA':
+      return {
+        display: 'ABA',
+        classes: clientColor ? '' : 'bg-blue-100 border-blue-300 text-blue-700',
+        style: clientColor ? { backgroundColor: clientColor, color: textColor, borderColor: 'rgba(0,0,0,0.1)' } : undefined
+      };
+    case 'AlliedHealth_OT':
+      return {
+        display: 'OT',
+        classes: clientColor ? '' : 'bg-green-100 border-green-300 text-green-700',
+        style: clientColor ? { backgroundColor: clientColor, color: textColor, borderColor: 'rgba(0,0,0,0.1)', filter: 'saturate(0.8) brightness(0.9)' } : undefined
+      };
+    case 'AlliedHealth_SLP':
+      return {
+        display: 'SLP',
+        classes: clientColor ? '' : 'bg-purple-100 border-purple-300 text-purple-700',
+        style: clientColor ? { backgroundColor: clientColor, color: textColor, borderColor: 'rgba(0,0,0,0.1)', filter: 'saturate(0.8) brightness(1.1)' } : undefined
+      };
+    case 'IndirectTime': return { display: 'Lunch', classes: 'bg-slate-400 border-slate-500 text-white' };
     default: return { display: sessionType, classes: 'bg-gray-100 border-gray-300 text-gray-700' };
   }
 };
@@ -47,6 +67,7 @@ const getDayOfWeekFromDate = (date: Date | null): DayOfWeek | null => {
 const ScheduleView: React.FC<ScheduleViewProps> = ({
     schedule,
     therapists: therapistsToDisplay,
+    clients,
     availableTeams,
     scheduledFullDate,
     onMoveScheduleEntry,
@@ -170,7 +191,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
             <div className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-100 border border-blue-300 rounded"></span><span className="text-xs text-slate-600">ABA</span></div>
             <div className="flex items-center gap-1"><span className="w-3 h-3 bg-green-100 border border-green-300 rounded"></span><span className="text-xs text-slate-600">OT</span></div>
             <div className="flex items-center gap-1"><span className="w-3 h-3 bg-purple-100 border border-purple-300 rounded"></span><span className="text-xs text-slate-600">SLP</span></div>
-            <div className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-100 border border-yellow-300 rounded"></span><span className="text-xs text-slate-600">Lunch</span></div>
+            <div className="flex items-center gap-1"><span className="w-3 h-3 bg-slate-400 border border-slate-500 rounded"></span><span className="text-xs text-slate-600">Lunch</span></div>
           </div>
         </div>
       </div>
@@ -217,11 +238,12 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                             const entryEndMinutes = timeToMinutes(entryForCell.endTime);
                             const durationMinutes = entryEndMinutes - entryStartMinutes;
                             const rowSpan = Math.max(1, Math.ceil(durationMinutes / 15));
-                            const styling = getSessionTypeStyling(entryForCell.sessionType);
+                            const styling = getSessionTypeStyling(entryForCell.sessionType, entryForCell.clientId, clients);
 
                             return (
                                 <td key={entryForCell.id}
                                     className={`p-1.5 border border-slate-200 text-xs relative group cursor-move hover:ring-2 hover:ring-blue-400 hover:shadow-lg transition-all ${styling.classes}`}
+                                    style={styling.style}
                                     rowSpan={rowSpan}
                                     draggable="true"
                                     onDragStart={(e) => handleDragStart(e, entryForCell)}
@@ -237,10 +259,10 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                                     <div className="text-[10px]">{to12HourTime(entryForCell.startTime)} - {to12HourTime(entryForCell.endTime)}</div>
                                   </div>
                                   <div className="flex flex-col gap-1">
-                                    <svg className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <svg className={`w-3 h-3 ${styling.style ? '' : 'text-slate-400'} opacity-60 group-hover:opacity-100 transition-opacity`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                                     </svg>
-                                    <PencilIcon className="w-3 h-3 text-slate-500 opacity-50 group-hover:opacity-100 transition-opacity" />
+                                    <PencilIcon className={`w-3 h-3 ${styling.style ? '' : 'text-slate-500'} opacity-50 group-hover:opacity-100 transition-opacity`} />
                                   </div>
                                 </div>
                                 </td>

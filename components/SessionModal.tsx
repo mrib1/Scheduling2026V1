@@ -266,7 +266,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
               onChange={(e) => handleInputChange('sessionType', e.target.value as SessionType)}
               className="mt-1 block w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             >
-              {availableSessionTypes.map(type => <option key={type} value={type}>{type === 'IndirectTime' ? 'Lunch/Indirect' : type}</option>)}
+              {availableSessionTypes.map(type => <option key={type} value={type}>{type === 'IndirectTime' ? 'Lunch' : type}</option>)}
             </select>
           </div>
 
@@ -280,10 +280,10 @@ const SessionModal: React.FC<SessionModalProps> = ({
               className={`mt-1 block w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 ${formData.sessionType === 'IndirectTime' ? 'bg-slate-100 cursor-not-allowed' : ''}`}
               aria-disabled={formData.sessionType === 'IndirectTime'}
             >
-              <option value="">N/A (Indirect/Lunch)</option>
+              <option value="">N/A (Lunch)</option>
               {clients.sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            {formData.sessionType === 'IndirectTime' && <p className="text-xs text-slate-500 mt-1">Client is N/A for Lunch/Indirect sessions.</p>}
+            {formData.sessionType === 'IndirectTime' && <p className="text-xs text-slate-500 mt-1">Client is N/A for Lunch sessions.</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

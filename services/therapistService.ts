@@ -20,6 +20,7 @@ const loadTherapists = async () => {
     _therapists = (data || []).map(row => ({
       id: row.id,
       name: row.name,
+      role: row.role || "BT",
       teamId: row.team_id || undefined,
       qualifications: row.qualifications || [],
       canProvideAlliedHealth: row.can_provide_allied_health || []
@@ -55,6 +56,7 @@ export const addTherapist = async (newTherapistData: Omit<Therapist, 'id'>): Pro
       .from('therapists')
       .insert({
         name: newTherapistData.name,
+        role: newTherapistData.role,
         team_id: newTherapistData.teamId || null,
         qualifications: newTherapistData.qualifications || [],
         can_provide_allied_health: newTherapistData.canProvideAlliedHealth || []
@@ -67,6 +69,7 @@ export const addTherapist = async (newTherapistData: Omit<Therapist, 'id'>): Pro
     const therapist: Therapist = {
       id: data.id,
       name: data.name,
+      role: data.role,
       teamId: data.team_id || undefined,
       qualifications: data.qualifications || [],
       canProvideAlliedHealth: data.can_provide_allied_health || []
@@ -86,6 +89,7 @@ export const updateTherapist = async (updatedTherapist: Therapist): Promise<Ther
       .from('therapists')
       .update({
         name: updatedTherapist.name,
+        role: updatedTherapist.role,
         team_id: updatedTherapist.teamId || null,
         qualifications: updatedTherapist.qualifications,
         can_provide_allied_health: updatedTherapist.canProvideAlliedHealth,
@@ -136,6 +140,7 @@ export const addOrUpdateBulkTherapists = async (therapistsToProcess: Partial<Omi
 
       if (existing) {
         const updateData: any = { updated_at: new Date().toISOString() };
+        if (therapistData.role !== undefined) updateData.role = therapistData.role;
         if (therapistData.teamId !== undefined) updateData.team_id = therapistData.teamId || null;
         if (therapistData.qualifications !== undefined) updateData.qualifications = therapistData.qualifications;
         if (therapistData.canProvideAlliedHealth !== undefined) updateData.can_provide_allied_health = therapistData.canProvideAlliedHealth;
@@ -151,6 +156,7 @@ export const addOrUpdateBulkTherapists = async (therapistsToProcess: Partial<Omi
           .from('therapists')
           .insert({
             name: therapistData.name,
+            role: therapistData.role || "BT",
             team_id: therapistData.teamId || null,
             qualifications: therapistData.qualifications || [],
             can_provide_allied_health: therapistData.canProvideAlliedHealth || []

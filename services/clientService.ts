@@ -21,6 +21,7 @@ const loadClients = async () => {
       id: row.id,
       name: row.name,
       teamId: row.team_id || undefined,
+      color: row.color || undefined,
       insuranceRequirements: row.insurance_requirements || [],
       alliedHealthNeeds: row.allied_health_needs || []
     }));
@@ -56,6 +57,7 @@ export const addClient = async (newClientData: Omit<Client, 'id'>): Promise<Clie
       .insert({
         name: newClientData.name,
         team_id: newClientData.teamId || null,
+        color: newClientData.color || null,
         insurance_requirements: newClientData.insuranceRequirements || [],
         allied_health_needs: newClientData.alliedHealthNeeds || []
       })
@@ -68,6 +70,7 @@ export const addClient = async (newClientData: Omit<Client, 'id'>): Promise<Clie
       id: data.id,
       name: data.name,
       teamId: data.team_id || undefined,
+      color: data.color || undefined,
       insuranceRequirements: data.insurance_requirements || [],
       alliedHealthNeeds: data.allied_health_needs || []
     };
@@ -87,6 +90,7 @@ export const updateClient = async (updatedClient: Client): Promise<Client | unde
       .update({
         name: updatedClient.name,
         team_id: updatedClient.teamId || null,
+        color: updatedClient.color || null,
         insurance_requirements: updatedClient.insuranceRequirements,
         allied_health_needs: updatedClient.alliedHealthNeeds,
         updated_at: new Date().toISOString()
@@ -137,6 +141,7 @@ export const addOrUpdateBulkClients = async (clientsToProcess: Partial<Client>[]
       if (existing) {
         const updateData: any = { updated_at: new Date().toISOString() };
         if (clientData.teamId !== undefined) updateData.team_id = clientData.teamId || null;
+        if (clientData.color !== undefined) updateData.color = clientData.color || null;
         if (clientData.insuranceRequirements !== undefined) updateData.insurance_requirements = clientData.insuranceRequirements;
         if (clientData.alliedHealthNeeds !== undefined) updateData.allied_health_needs = clientData.alliedHealthNeeds;
 
@@ -152,6 +157,7 @@ export const addOrUpdateBulkClients = async (clientsToProcess: Partial<Client>[]
           .insert({
             name: clientData.name,
             team_id: clientData.teamId || null,
+            color: clientData.color || null,
             insurance_requirements: clientData.insuranceRequirements || [],
             allied_health_needs: clientData.alliedHealthNeeds || []
           });
