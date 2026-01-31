@@ -119,7 +119,7 @@ class FastScheduler {
         });
 
         const shuffledC = this.clients.map((c, ci) => ({c, ci})).sort(() => Math.random() - 0.5);
-        
+
         // Pass 2: Allied Health
         shuffledC.forEach(target => {
             target.c.alliedHealthNeeds.forEach(need => {
@@ -155,26 +155,6 @@ class FastScheduler {
             });
         });
 
-        // Pass 2.5: BCBA / CF Minimum Assignment (Ensures every senior staff has at least 1 billable session)
-        const seniorStaff = sortedTherapists.filter(x => x.t.role === "BCBA" || x.t.role === "CF");
-        seniorStaff.forEach(q => {
-            if (tSessionCount[q.ti] > 0) return;
-            const possibleClients = [...shuffledC].filter(target => this.meetsInsurance(q.t, target.c)).sort(() => Math.random() - 0.5);
-            for (const target of possibleClients) {
-                if (tracker.cT[target.ci].size >= 3 && target.c.insuranceRequirements.includes("MD_MEDICAID")) continue;
-                for (let s = 0; s < NUM_SLOTS - 4; s++) {
-                    if (tracker.isCFree(target.ci, s, 4) && tracker.isTFree(q.ti, s, 4)) {
-                        if (this.isBTB(schedule, target.c.id, q.t.id, s, 4)) continue;
-                        schedule.push(this.ent(target.ci, q.ti, s, 4, 'ABA'));
-                        tracker.book(q.ti, target.ci, s, 4);
-                        tSessionCount[q.ti]++;
-                        break;
-                    }
-                }
-                if (tSessionCount[q.ti] > 0) break;
-            }
-        });
-
         // Pass 3: ABA Sessions (Global interleaved approach to ensure fair distribution and gap-free coverage)
         for (let s = 0; s < NUM_SLOTS; s++) {
             const shuffledClientsForSlot = [...shuffledC].sort(() => Math.random() - 0.5);
@@ -199,7 +179,7 @@ class FastScheduler {
                     for (const q of quals) {
                         // Check Medicaid limit
                         if (tracker.cT[target.ci].size >= 3 && !tracker.cT[target.ci].has(q.ti) && target.c.insuranceRequirements.includes("MD_MEDICAID")) continue;
-                        
+
                         // Try session lengths from 3h down to 1h
                         for (let len = 12; len >= 4; len--) {
                             if (s + len <= NUM_SLOTS && tracker.isCFree(target.ci, s, len) && tracker.isTFree(q.ti, s, len)) {
@@ -270,10 +250,9 @@ class FastScheduler {
         if (errs.length > 0) {
             let p = 10000000; // Higher base penalty for any error
             errs.forEach(e => {
-                if (e.ruleId === "CLIENT_COVERAGE_GAP_AT_TIME") p += 1000000; // Even higher penalty for gaps
-                else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 2000000;
+                if (e.ruleId === "CLIENT_COVERAGE_GAP_AT_TIME") p += 100000; // Extremely high penalty for gaps
+                else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 200000;
                 else if (e.ruleId === "MD_MEDICAID_LIMIT_VIOLATED") p += 500000;
-                else if (e.ruleId === "BCBA_NO_DIRECT_TIME") p += 500000;
                 else if (e.ruleId === "MAX_NOTES_EXCEEDED") p += 10;
                 else p += 1000;
             });

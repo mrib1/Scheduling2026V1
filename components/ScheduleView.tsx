@@ -50,7 +50,7 @@ const getSessionTypeStyling = (sessionType: SessionType, clientId: string | null
         classes: clientColor ? '' : 'bg-purple-100 border-purple-300 text-purple-700',
         style: clientColor ? { backgroundColor: clientColor, color: textColor, borderColor: 'rgba(0,0,0,0.1)', filter: 'saturate(0.8) brightness(1.1)' } : undefined
       };
-    case 'IndirectTime': return { display: 'Lunch', classes: 'bg-slate-400 border-slate-500 text-white' };
+    case 'IndirectTime': return { display: 'Lunch', classes: 'bg-slate-200 border-slate-300 text-slate-700' };
     default: return { display: sessionType, classes: 'bg-gray-100 border-gray-300 text-gray-700' };
   }
 };
@@ -191,7 +191,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
             <div className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-100 border border-blue-300 rounded"></span><span className="text-xs text-slate-600">ABA</span></div>
             <div className="flex items-center gap-1"><span className="w-3 h-3 bg-green-100 border border-green-300 rounded"></span><span className="text-xs text-slate-600">OT</span></div>
             <div className="flex items-center gap-1"><span className="w-3 h-3 bg-purple-100 border border-purple-300 rounded"></span><span className="text-xs text-slate-600">SLP</span></div>
-            <div className="flex items-center gap-1"><span className="w-3 h-3 bg-slate-400 border border-slate-500 rounded"></span><span className="text-xs text-slate-600">Lunch</span></div>
+            <div className="flex items-center gap-1"><span className="w-3 h-3 bg-slate-200 border border-slate-300 rounded"></span><span className="text-xs text-slate-600">Lunch</span></div>
           </div>
         </div>
       </div>
