@@ -32,6 +32,7 @@ export interface Client {
   id:string;
   name: string;
   teamId?: string;
+  color?: string;
   /**
    * List of qualifications a therapist must have to work with this client.
    * "MD_MEDICAID" is a special value checked by the validation rule MD_MEDICAID_LIMIT_VIOLATED.
@@ -97,6 +98,7 @@ export interface SettingsPanelProps {
 export interface ScheduleViewProps {
   schedule: GeneratedSchedule;
   therapists: Therapist[]; // These are the *displayed* therapists
+  clients: Client[];
   availableTeams: Team[];
   scheduledFullDate: Date | null;
   onMoveScheduleEntry: (draggedEntryId: string, newTherapistId: string, newStartTime: string) => void;

@@ -5,6 +5,7 @@ import { TIME_SLOTS_H_MM, ALL_ALLIED_HEALTH_SERVICES, COMPANY_OPERATING_HOURS_ST
 import { TrashIcon } from './icons/TrashIcon';
 import { PlusIcon } from './icons/PlusIcon';
 import SearchableMultiSelectDropdown from './SearchableMultiSelectDropdown';
+import { getClientColor } from '../utils/colorUtils';
 
 const ClientForm: React.FC<ClientFormProps> = ({ client, availableTeams, availableInsuranceQualifications, onUpdate, onRemove }) => {
   const [formData, setFormData] = useState<Client>(client);
@@ -40,16 +41,25 @@ const ClientForm: React.FC<ClientFormProps> = ({ client, availableTeams, availab
     handleInputChange('insuranceRequirements', selectedRequirements);
   };
 
+  const clientColor = getClientColor(client.id);
+
   return (
     <div className="bg-slate-50 p-6 rounded-lg shadow-md border border-slate-200 space-y-6">
       <div className="flex justify-between items-start mb-2">
-        <input
-            type="text"
-            value={formData.name}
-            onChange={(e) => handleInputChange('name', e.target.value)}
-            className="text-xl font-semibold text-slate-700 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full mr-4"
-            placeholder="Client Name"
-        />
+        <div className="flex items-center space-x-3 w-full mr-4">
+          <div
+            className="w-6 h-6 rounded-full border border-slate-300 shadow-sm flex-shrink-0"
+            style={{ backgroundColor: clientColor }}
+            title="Schedule block color for this client"
+          />
+          <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => handleInputChange('name', e.target.value)}
+              className="text-xl font-semibold text-slate-700 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full"
+              placeholder="Client Name"
+          />
+        </div>
         <button
           onClick={() => onRemove(client.id)}
           className="text-red-500 hover:text-red-700 transition-colors flex-shrink-0"

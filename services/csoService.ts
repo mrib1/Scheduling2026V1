@@ -94,7 +94,11 @@ class FastScheduler {
             });
         }
 
+        // Optimization: Pre-sort therapists by role once
         const ROLE_RANK: Record<string, number> = { "BCBA": 0, "CF": 1, "STAR 3": 2, "STAR 2": 3, "STAR 1": 4, "RBT": 5, "BT": 6, "Other": 7 };
+        const sortedTherapists = this.therapists.map((t, ti) => ({t, ti})).sort((a, b) => {
+            return (ROLE_RANK[a.t.role] || 0) - (ROLE_RANK[b.t.role] || 0);
+        });
 
         // Pass 1: Lunches
         const shuffledT = this.therapists.map((t, ti) => ({t, ti})).sort(() => Math.random() - 0.5);
@@ -124,7 +128,8 @@ class FastScheduler {
                 const type: SessionType = `AlliedHealth_${need.type}` as SessionType;
                 const slots = [];
                 for (let s = 0; s <= NUM_SLOTS - len; s++) slots.push(s);
-                slots.sort((a, b) => Math.min(a, NUM_SLOTS - (a + len)) - Math.min(b, NUM_SLOTS - (b + len)));
+                // Heuristic: Prefer placing AH at edges, but with some randomness to explore
+                slots.sort((a, b) => (Math.min(a, NUM_SLOTS - (a + len)) - Math.min(b, NUM_SLOTS - (b + len))) + (Math.random() - 0.5) * 4);
                 for (const s of slots) {
                     if (tracker.isCFree(target.ci, s, len)) {
                         const possibleT = this.therapists.map((t, ti) => ({t, ti}))
@@ -150,44 +155,55 @@ class FastScheduler {
             });
         });
 
-        // Pass 3: ABA Sessions
-        shuffledC.forEach(target => {
-            let lastTi = -1;
-            for (let s = 0; s < NUM_SLOTS; s++) {
+        // Pass 3: ABA Sessions (Global interleaved approach to ensure fair distribution and gap-free coverage)
+        for (let s = 0; s < NUM_SLOTS; s++) {
+            const shuffledClientsForSlot = [...shuffledC].sort(() => Math.random() - 0.5);
+            shuffledClientsForSlot.forEach(target => {
                 if (tracker.isCFree(target.ci, s, 1)) {
-                    const quals = this.therapists.map((t, ti) => ({t, ti}))
-                        .filter(x => this.meetsInsurance(x.t, target.c))
-                        .sort((a, b) => {
-                            // Favor therapists already working with this client to stay within Medicaid limits
-                            const aIsKnown = tracker.cT[target.ci].has(a.ti) ? 0 : 1;
-                            const bIsKnown = tracker.cT[target.ci].has(b.ti) ? 0 : 1;
-                            if (aIsKnown !== bIsKnown) return aIsKnown - bIsKnown;
+                    // Find a therapist for this client starting at slot s
+                    const quals = sortedTherapists.filter(x => this.meetsInsurance(x.t, target.c)).sort((a, b) => {
+                        // Priority 1: Already working with this client (Medicaid limit safety)
+                        const aIsKnown = tracker.cT[target.ci].has(a.ti) ? 0 : 1;
+                        const bIsKnown = tracker.cT[target.ci].has(b.ti) ? 0 : 1;
+                        if (aIsKnown !== bIsKnown) return aIsKnown - bIsKnown;
 
-                            const aRank = ROLE_RANK[a.t.role] || 0;
-                            const bRank = ROLE_RANK[b.t.role] || 0;
-                            if (aRank !== bRank) return bRank - aRank; // Lower role first
-                            return (tSessionCount[a.ti] - tSessionCount[b.ti]) + (Math.random() - 0.5) * 2;
-                        });
+                        // Priority 2: Role rank (BT/RBT first for billable work)
+                        const aRank = ROLE_RANK[a.t.role] || 0;
+                        const bRank = ROLE_RANK[b.t.role] || 0;
+                        if (aRank !== bRank) return bRank - aRank; // Higher rank value (lower role) first
+
+                        // Priority 3: Current session count (even distribution among same-tier roles)
+                        return (tSessionCount[a.ti] - tSessionCount[b.ti]) + (Math.random() - 0.5) * 2;
+                    });
 
                     for (const q of quals) {
-                        if (q.ti === lastTi) continue; // Basic BTB prevention
+                        // Check Medicaid limit
                         if (tracker.cT[target.ci].size >= 3 && !tracker.cT[target.ci].has(q.ti) && target.c.insuranceRequirements.includes("MD_MEDICAID")) continue;
 
+                        // Try session lengths from 3h down to 1h
                         for (let len = 12; len >= 4; len--) {
                             if (s + len <= NUM_SLOTS && tracker.isCFree(target.ci, s, len) && tracker.isTFree(q.ti, s, len)) {
+                                // Heuristic: Avoid leaving small unfillable gaps (< 1h)
+                                let gapAfter = 0;
+                                let tempS = s + len;
+                                while(tempS < NUM_SLOTS && tracker.isCFree(target.ci, tempS, 1)) {
+                                    gapAfter++;
+                                    tempS++;
+                                }
+                                if (gapAfter > 0 && gapAfter < 4) continue;
+
                                 if (this.isBTB(schedule, target.c.id, q.t.id, s, len)) continue;
                                 schedule.push(this.ent(target.ci, q.ti, s, len, 'ABA'));
                                 tracker.book(q.ti, target.ci, s, len);
                                 tSessionCount[q.ti]++;
-                                lastTi = q.ti;
                                 break;
                             }
                         }
                         if (!tracker.isCFree(target.ci, s, 1)) break;
                     }
                 }
-            }
-        });
+            });
+        }
 
         // Filter out lunches for people with no billable work
         return schedule.filter(e => {
@@ -214,10 +230,16 @@ class FastScheduler {
     public async run(initialSchedule?: GeneratedSchedule): Promise<GeneratedSchedule> {
         let best: GeneratedSchedule = [];
         let minScore = Infinity;
-        for (let i = 0; i < 4000; i++) {
+        const iterations = this.clients.length > 15 ? 10000 : 5000;
+        for (let i = 0; i < iterations; i++) {
             const s = this.createSchedule(initialSchedule);
             const score = this.calculateScore(s);
-            if (score < minScore) { best = s; minScore = score; if (minScore === 0) break; }
+            if (score < minScore) {
+                best = s;
+                minScore = score;
+                if (minScore === 0) break;
+            }
+            // Dynamic adjustment: if we're halfway and still have gaps, maybe we need more randomness in Pass 2/3
         }
         return best;
     }
@@ -225,11 +247,13 @@ class FastScheduler {
     private calculateScore(s: GeneratedSchedule): number {
         const errs = validateFullSchedule(s, this.clients, this.therapists, this.selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, this.callouts);
         if (errs.length > 0) {
-            let p = 1000000;
+            let p = 10000000; // Higher base penalty for any error
             errs.forEach(e => {
-                if (e.ruleId === "CLIENT_COVERAGE_GAP_AT_TIME") p += 5000;
+                if (e.ruleId === "CLIENT_COVERAGE_GAP_AT_TIME") p += 100000; // Extremely high penalty for gaps
+                else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 200000;
+                else if (e.ruleId === "MD_MEDICAID_LIMIT_VIOLATED") p += 500000;
                 else if (e.ruleId === "MAX_NOTES_EXCEEDED") p += 10;
-                else p += 100;
+                else p += 1000;
             });
             return p;
         }
