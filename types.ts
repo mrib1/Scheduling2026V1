@@ -33,6 +33,7 @@ export interface InsuranceQualification {
   maxTherapistsPerDay?: number;
   minSessionDurationMinutes?: number;
   maxHoursPerWeek?: number;
+  roleHierarchyOrder?: number;
 }
 
 export interface Client {

@@ -166,6 +166,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               <thead className="bg-slate-50">
                 <tr>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Type / ID</th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Role Hierarchy</th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Max Providers/Day</th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Min Session (Min)</th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Max Hours/Week</th>
@@ -177,6 +178,22 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <tr key={iq.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-sm font-medium text-slate-900">{iq.id}</span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <select
+                        value={iq.roleHierarchyOrder ?? ''}
+                        onChange={(e) => handleUpdateIQField(iq.id, 'roleHierarchyOrder', e.target.value === '' ? undefined : parseInt(e.target.value))}
+                        className="text-sm border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Default</option>
+                        <option value="0">BT (0)</option>
+                        <option value="1">RBT (1)</option>
+                        <option value="2">STAR 1 (2)</option>
+                        <option value="3">STAR 2 (3)</option>
+                        <option value="4">STAR 3 (4)</option>
+                        <option value="5">CF (5)</option>
+                        <option value="6">BCBA (6)</option>
+                      </select>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <input

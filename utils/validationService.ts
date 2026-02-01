@@ -35,6 +35,25 @@ export const sessionsOverlap = (
   return start1 < end2 && start2 < end1;
 };
 
+const DEFAULT_ROLE_RANK: Record<string, number> = {
+  "BCBA": 6,
+  "CF": 5,
+  "STAR 3": 4,
+  "STAR 2": 3,
+  "STAR 1": 2,
+  "RBT": 1,
+  "BT": 0,
+  "Other": -1
+};
+
+const getRoleRank = (role: string, insuranceQualifications: InsuranceQualification[]) => {
+  const metadata = insuranceQualifications.find(iq => iq.id === role);
+  if (metadata && metadata.roleHierarchyOrder !== undefined) {
+    return metadata.roleHierarchyOrder;
+  }
+  return DEFAULT_ROLE_RANK[role] ?? -1;
+};
+
 export const validateSessionEntry = (
   entryToValidate: ScheduleEntry,
   currentSchedule: GeneratedSchedule,
@@ -131,18 +150,15 @@ export const validateSessionEntry = (
         errors.push({ ruleId: "CLIENT_NOT_FOUND", message: `Client "${clientName}" (ID: ${clientId}) not found.`});
     } else {
         if (therapistData && clientData.insuranceRequirements.length > 0) {
-            const ROLE_RANK: Record<string, number> = { "BCBA": 0, "CF": 1, "STAR 3": 2, "STAR 2": 3, "STAR 1": 4, "RBT": 5, "BT": 6, "Other": 7 };
-
             const unmetRequirements = clientData.insuranceRequirements.filter(reqId => {
               // 1. Direct match in qualifications
               if (therapistData.qualifications.includes(reqId)) return false;
 
               // 2. Role hierarchy match
-              if (ALL_THERAPIST_ROLES.includes(reqId as TherapistRole)) {
-                  const requiredRank = ROLE_RANK[reqId] ?? 99;
-                  const therapistRank = ROLE_RANK[therapistData.role] ?? 99;
-                  if (therapistRank <= requiredRank) return false;
-              }
+              const requiredRank = getRoleRank(reqId, insuranceQualifications);
+              const therapistRank = getRoleRank(therapistData.role, insuranceQualifications);
+
+              if (therapistRank >= requiredRank && requiredRank !== -1) return false;
 
               // 3. Special case for RBT/BT credential if the requirement is exactly the role name
               if (therapistData.role === reqId) return false;
@@ -274,12 +290,9 @@ export const validateFullSchedule = (
   const isWeekendDay = currentDayOfWeekString === DayOfWeek.SATURDAY || currentDayOfWeekString === DayOfWeek.SUNDAY;
 
   scheduleToValidate.forEach((entryToValidate) => {
-    if (entryToValidate.day !== currentDayOfWeekString) {
-      allErrors.push({
-        ruleId: "WRONG_DAY_FOR_ENTRY",
-        message: `Entry for ${entryToValidate.clientName || 'Indirect'} with ${entryToValidate.therapistName} is scheduled on ${entryToValidate.day} but should be on ${currentDayOfWeekString}. (ID: ${entryToValidate.id})`
-      });
-    }
+    // Only perform day-specific validation for entries matching the selected day.
+    // Aggregate checks (like weekly hours) are handled separately below for the whole schedule.
+    if (entryToValidate.day !== currentDayOfWeekString) return;
 
     const entryErrors = validateSessionEntry(entryToValidate, scheduleToValidate, clients, therapists, insuranceQualifications, entryToValidate.id);
 
@@ -382,31 +395,35 @@ export const validateFullSchedule = (
   
   // Client-specific aggregate checks
   clients.forEach(client => {
-      const clientSessionsToday = scheduleToValidate.filter(s => s.clientId === client.id && s.day === currentDayOfWeekString);
-      
       // Dynamic Insurance Checks (Max Providers, Max Hours)
       const applicableQuals = insuranceQualifications.filter(q => client.insuranceRequirements.includes(q.id));
 
-      // 1. Max Providers Per Day
-      let maxProvidersAllowed = Infinity;
-      let limitingQualId = '';
+      // 1. Max Providers Per Day (Checked for each day present in the schedule)
+      const daysToValidate = Array.from(new Set(scheduleToValidate.map(s => s.day)));
 
-      applicableQuals.forEach(q => {
-          if (q.maxTherapistsPerDay !== undefined && q.maxTherapistsPerDay < maxProvidersAllowed) {
-              maxProvidersAllowed = q.maxTherapistsPerDay;
-              limitingQualId = q.id;
+      daysToValidate.forEach(day => {
+          const clientSessionsOnDay = scheduleToValidate.filter(s => s.clientId === client.id && s.day === day);
+
+          let maxProvidersAllowed = Infinity;
+          let limitingQualId = '';
+
+          applicableQuals.forEach(q => {
+              if (q.maxTherapistsPerDay !== undefined && q.maxTherapistsPerDay < maxProvidersAllowed) {
+                  maxProvidersAllowed = q.maxTherapistsPerDay;
+                  limitingQualId = q.id;
+              }
+          });
+
+          if (maxProvidersAllowed !== Infinity) {
+              const uniqueTherapists = new Set(clientSessionsOnDay.filter(s => s.sessionType === 'ABA' || s.sessionType.startsWith('AlliedHealth_')).map(s => s.therapistId));
+              if (uniqueTherapists.size > maxProvidersAllowed) {
+                  allErrors.push({
+                      ruleId: "MAX_PROVIDERS_VIOLATED",
+                      message: `Client ${client.name} is scheduled with ${uniqueTherapists.size} unique providers on ${day}, exceeding the limit of ${maxProvidersAllowed} set by ${limitingQualId}.`
+                  });
+              }
           }
       });
-
-      if (maxProvidersAllowed !== Infinity) {
-          const uniqueTherapists = new Set(clientSessionsToday.filter(s => s.sessionType === 'ABA' || s.sessionType.startsWith('AlliedHealth_')).map(s => s.therapistId));
-          if (uniqueTherapists.size > maxProvidersAllowed) {
-              allErrors.push({
-                  ruleId: "MAX_PROVIDERS_VIOLATED",
-                  message: `Client ${client.name} is scheduled with ${uniqueTherapists.size} unique providers today, exceeding the limit of ${maxProvidersAllowed} set by ${limitingQualId}.`
-              });
-          }
-      }
 
       // 2. Max Hours Per Week
       applicableQuals.forEach(q => {
@@ -426,8 +443,9 @@ export const validateFullSchedule = (
           }
       });
 
-      // Coverage Gap Check
+      // Coverage Gap Check (only for the currently selected/viewed date)
       if (!isWeekendDay) {
+          const clientSessionsToday = scheduleToValidate.filter(s => s.clientId === client.id && s.day === currentDayOfWeekString);
           const opStartMinutes = timeToMinutes(operatingHoursStart);
           const opEndMinutes = timeToMinutes(operatingHoursEnd);
 

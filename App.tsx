@@ -125,9 +125,9 @@ const App: React.FC = () => {
     if (dateString) {
       const [year, month, day] = dateString.split('-').map(Number);
       setSelectedDate(new Date(year, month - 1, day));
-      setSchedule(null);
+      // NOT clearing schedule to allow multi-day build-up for weekly limits
     } else {
-      setSelectedDate(null); setSchedule(null);
+      setSelectedDate(null);
     }
   };
 
@@ -316,15 +316,21 @@ const App: React.FC = () => {
     if (!selectedDate) { setError([{ ruleId: "MISSING_DATE", message: "Please select a date." }]); return; }
     if (clients.length === 0 || therapists.length === 0) { setError([{ ruleId: "MISSING_DATA", message: "Add clients and therapists." }]); return; }
 
-    setLoadingState({ active: true, message: 'Optimizing Schedule with Genetic Algorithm...' });
-    setError(null); setSchedule(null); setGaStatusMessage(null);
+    setLoadingState({ active: true, message: 'Optimizing Schedule...' });
+    setError(null); setGaStatusMessage(null);
 
     try {
-      // Use CSO Algorithm from service
-      const result = await runCsoAlgorithm(clients, therapists, availableInsuranceQualifications, selectedDate, callouts);
+      // Use CSO Algorithm from service. Pass existing schedule to respect weekly hour limits.
+      const result = await runCsoAlgorithm(clients, therapists, availableInsuranceQualifications, selectedDate, callouts, schedule || []);
+
+      const newDayEntries = result.schedule ? result.schedule.map(entry => ({...entry, id: entry.id || generateScheduleEntryId() })) : [];
+      const scheduledDayOfWeek = [DayOfWeek.SUNDAY, DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY][selectedDate.getDay()];
+
+      // Merge with other days
+      const otherDayEntries = (schedule || []).filter(e => e.day !== scheduledDayOfWeek);
+      const combinedSchedule = [...otherDayEntries, ...newDayEntries];
       
-      const scheduleWithIds = result.schedule ? result.schedule.map(entry => ({...entry, id: entry.id || generateScheduleEntryId() })) : [];
-      setSchedule(scheduleWithIds);
+      setSchedule(combinedSchedule);
       
       if (result.finalValidationErrors.length > 0) {
          setError(result.finalValidationErrors);
@@ -347,15 +353,20 @@ const App: React.FC = () => {
   const handleOptimizeCurrentScheduleWithGA = useCallback(async () => {
     if (!selectedDate || !schedule || schedule.length === 0) return;
     
-    setLoadingState({ active: true, message: 'Evolving Current Schedule...' });
+    setLoadingState({ active: true, message: 'Evolving Current Day...' });
     setError(null);
     
     try {
        // Pass current schedule to seed the population
        const result = await runCsoAlgorithm(clients, therapists, availableInsuranceQualifications, selectedDate, callouts, schedule);
        
-       const scheduleWithIds = result.schedule ? result.schedule.map(entry => ({...entry, id: entry.id || generateScheduleEntryId() })) : [];
-       setSchedule(scheduleWithIds);
+       const newDayEntries = result.schedule ? result.schedule.map(entry => ({...entry, id: entry.id || generateScheduleEntryId() })) : [];
+       const scheduledDayOfWeek = [DayOfWeek.SUNDAY, DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY][selectedDate.getDay()];
+
+       const otherDayEntries = schedule.filter(e => e.day !== scheduledDayOfWeek);
+       const combinedSchedule = [...otherDayEntries, ...newDayEntries];
+
+       setSchedule(combinedSchedule);
        
        if (result.finalValidationErrors.length > 0) {
           setError(result.finalValidationErrors);
@@ -486,7 +497,7 @@ const App: React.FC = () => {
         else if (action === 'REMOVE' && therapistNamesToRemove.length > 0) { const result = await therapistService.removeTherapistsByNames(therapistNamesToRemove); summary.removedCount = result.removedCount; }
         const currentIQs = settingsService.getInsuranceQualifications();
         const currentIQNames = currentIQs.map(q => q.id);
-        const newIQNames = Array.from(newInsuranceRequirementsFound).filter(name => !currentIQNames.includes(name));
+        const newIQNames = Array.from(newQualificationsFound).filter(name => !currentIQNames.includes(name));
         if (newIQNames.length > 0) {
             const allCombinedQuals = [...currentIQs, ...newIQNames.map(name => ({ id: name }))];
             settingsService.updateInsuranceQualifications(allCombinedQuals);
