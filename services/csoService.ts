@@ -1,5 +1,5 @@
-import { Client, Therapist, GeneratedSchedule, DayOfWeek, Callout, GAGenerationResult, ScheduleEntry, SessionType } from '../types';
-import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, IDEAL_LUNCH_WINDOW_START, IDEAL_LUNCH_WINDOW_END_FOR_START } from '../constants';
+import { Client, Therapist, GeneratedSchedule, DayOfWeek, Callout, GAGenerationResult, ScheduleEntry, SessionType, InsuranceQualification, TherapistRole } from '../types';
+import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, IDEAL_LUNCH_WINDOW_START, IDEAL_LUNCH_WINDOW_END_FOR_START, ALL_THERAPIST_ROLES, DEFAULT_ROLE_RANK } from '../constants';
 import { validateFullSchedule, timeToMinutes, minutesToTime, sessionsOverlap, isDateAffectedByCalloutRange } from '../utils/validationService';
 
 const SLOT_SIZE = 15;
@@ -40,20 +40,80 @@ class BitTracker {
 class FastScheduler {
     private clients: Client[];
     private therapists: Therapist[];
+    private insuranceQualifications: InsuranceQualification[];
     private day: DayOfWeek;
     private selectedDate: Date;
     private callouts: Callout[];
 
-    constructor(clients: Client[], therapists: Therapist[], day: DayOfWeek, selectedDate: Date, callouts: Callout[]) {
+    constructor(clients: Client[], therapists: Therapist[], insuranceQualifications: InsuranceQualification[], day: DayOfWeek, selectedDate: Date, callouts: Callout[]) {
         this.clients = clients;
         this.therapists = therapists;
+        this.insuranceQualifications = insuranceQualifications;
         this.day = day;
         this.selectedDate = selectedDate;
         this.callouts = callouts;
     }
 
-    private meetsInsurance(t: Therapist, c: Client) {
-        return c.insuranceRequirements.every(r => t.qualifications.includes(r));
+    private getRoleRank(role: string): number {
+        const metadata = this.insuranceQualifications.find(iq => iq.id === role);
+        if (metadata && metadata.roleHierarchyOrder !== undefined) {
+            return metadata.roleHierarchyOrder;
+        }
+        return DEFAULT_ROLE_RANK[role] ?? -1;
+    }
+
+    private meetsInsurance(t: Therapist, c: Client): boolean {
+        if (c.insuranceRequirements.length === 0) return true;
+        return c.insuranceRequirements.every(reqId => {
+            if (t.qualifications.includes(reqId)) return true;
+
+            const requiredRank = this.getRoleRank(reqId);
+            const therapistRank = this.getRoleRank(t.role);
+
+            if (therapistRank >= requiredRank && requiredRank !== -1) return true;
+            if (t.role === reqId) return true;
+            return false;
+        });
+    }
+
+    private getMaxProviders(c: Client): number {
+        let max = Infinity;
+        c.insuranceRequirements.forEach(reqId => {
+            const q = this.insuranceQualifications.find(qual => qual.id === reqId);
+            if (q && q.maxTherapistsPerDay !== undefined && q.maxTherapistsPerDay < max) {
+                max = q.maxTherapistsPerDay;
+            }
+        });
+        return max;
+    }
+
+    private getMinDuration(c: Client): number {
+        let min = 60; // Default ABA min
+        c.insuranceRequirements.forEach(reqId => {
+            const q = this.insuranceQualifications.find(qual => qual.id === reqId);
+            if (q && q.minSessionDurationMinutes !== undefined) {
+                // If an insurance explicitly specifies a minimum, we should respect it.
+                // If multiple specify, we take the highest.
+                if (q.minSessionDurationMinutes > min) {
+                    min = q.minSessionDurationMinutes;
+                }
+            }
+        });
+        return min;
+    }
+
+    private getMaxDuration(c: Client): number {
+        let max = 180; // Default ABA max
+        c.insuranceRequirements.forEach(reqId => {
+            const q = this.insuranceQualifications.find(qual => qual.id === reqId);
+            if (q && q.maxSessionDurationMinutes !== undefined) {
+                // If multiple specify, we take the lowest to be safe.
+                if (q.maxSessionDurationMinutes < max) {
+                    max = q.maxSessionDurationMinutes;
+                }
+            }
+        });
+        return max;
     }
 
     public createSchedule(initialSchedule?: GeneratedSchedule): GeneratedSchedule {
@@ -95,14 +155,16 @@ class FastScheduler {
         }
 
         // Optimization: Pre-sort therapists by role once
-        const ROLE_RANK: Record<string, number> = { "BCBA": 0, "CF": 1, "STAR 3": 2, "STAR 2": 3, "STAR 1": 4, "RBT": 5, "BT": 6, "Other": 7 };
         const sortedTherapists = this.therapists.map((t, ti) => ({t, ti})).sort((a, b) => {
-            return (ROLE_RANK[a.t.role] || 0) - (ROLE_RANK[b.t.role] || 0);
+            return this.getRoleRank(a.t.role) - this.getRoleRank(b.t.role);
         });
 
         // Pass 1: Lunches
         const shuffledT = this.therapists.map((t, ti) => ({t, ti})).sort(() => Math.random() - 0.5);
         shuffledT.forEach(q => {
+            // Check if already has a lunch or indirect task in the lunch window from initialSchedule
+            if (schedule.some(e => e.therapistId === q.t.id && e.sessionType === 'IndirectTime')) return;
+
             const ls = Math.floor((timeToMinutes(IDEAL_LUNCH_WINDOW_START) - OP_START) / SLOT_SIZE);
             const le = Math.floor((timeToMinutes(IDEAL_LUNCH_WINDOW_END_FOR_START) - OP_START) / SLOT_SIZE);
             const opts = [];
@@ -138,11 +200,12 @@ class FastScheduler {
                                 const reqQual = need.type === 'OT' ? "OT Certified" : "SLP Certified";
                                 if (!x.t.qualifications.includes(reqQual)) return false;
                                 if (!tracker.isTFree(x.ti, s, len)) return false;
-                                // Medicaid limit check
-                                if (target.c.insuranceRequirements.includes("MD_MEDICAID") && tracker.cT[target.ci].size >= 3 && !tracker.cT[target.ci].has(x.ti)) return false;
+                                // Insurance provider limit check
+                                const maxP = this.getMaxProviders(target.c);
+                                if (tracker.cT[target.ci].size >= maxP && !tracker.cT[target.ci].has(x.ti)) return false;
                                 return true;
                             })
-                            .sort((a, b) => (ROLE_RANK[b.t.role] || 0) - (ROLE_RANK[a.t.role] || 0));
+                            .sort((a, b) => this.getRoleRank(a.t.role) - this.getRoleRank(b.t.role));
                         if (possibleT.length > 0) {
                             const q = possibleT[0];
                             schedule.push(this.ent(target.ci, q.ti, s, len, type));
@@ -168,29 +231,32 @@ class FastScheduler {
                         if (aIsKnown !== bIsKnown) return aIsKnown - bIsKnown;
 
                         // Priority 2: Role rank (BT/RBT first for billable work)
-                        const aRank = ROLE_RANK[a.t.role] || 0;
-                        const bRank = ROLE_RANK[b.t.role] || 0;
-                        if (aRank !== bRank) return bRank - aRank; // Higher rank value (lower role) first
+                        const aRank = this.getRoleRank(a.t.role);
+                        const bRank = this.getRoleRank(b.t.role);
+                        if (aRank !== bRank) return aRank - bRank; // Lower rank (BT/RBT) first
 
                         // Priority 3: Current session count (even distribution among same-tier roles)
                         return (tSessionCount[a.ti] - tSessionCount[b.ti]) + (Math.random() - 0.5) * 2;
                     });
 
                     for (const q of quals) {
-                        // Check Medicaid limit
-                        if (tracker.cT[target.ci].size >= 3 && !tracker.cT[target.ci].has(q.ti) && target.c.insuranceRequirements.includes("MD_MEDICAID")) continue;
+                        // Check provider limit
+                        const maxP = this.getMaxProviders(target.c);
+                        if (tracker.cT[target.ci].size >= maxP && !tracker.cT[target.ci].has(q.ti)) continue;
 
-                        // Try session lengths from 3h down to 1h
-                        for (let len = 12; len >= 4; len--) {
+                        // Try session lengths from max down to min required
+                        const minLenSlots = Math.ceil(this.getMinDuration(target.c) / SLOT_SIZE);
+                        const maxLenSlots = Math.max(Math.ceil(this.getMaxDuration(target.c) / SLOT_SIZE), minLenSlots);
+                        for (let len = maxLenSlots; len >= minLenSlots; len--) {
                             if (s + len <= NUM_SLOTS && tracker.isCFree(target.ci, s, len) && tracker.isTFree(q.ti, s, len)) {
-                                // Heuristic: Avoid leaving small unfillable gaps (< 1h)
+                                // Heuristic: Avoid leaving small unfillable gaps (< required min session duration)
                                 let gapAfter = 0;
                                 let tempS = s + len;
                                 while(tempS < NUM_SLOTS && tracker.isCFree(target.ci, tempS, 1)) {
                                     gapAfter++;
                                     tempS++;
                                 }
-                                if (gapAfter > 0 && gapAfter < 4) continue;
+                                if (gapAfter > 0 && gapAfter < minLenSlots) continue;
 
                                 if (this.isBTB(schedule, target.c.id, q.t.id, s, len)) continue;
                                 schedule.push(this.ent(target.ci, q.ti, s, len, 'ABA'));
@@ -234,7 +300,7 @@ class FastScheduler {
         for (let i = 0; i < iterations; i++) {
             if (i > 0 && i % 500 === 0) await new Promise(r => setTimeout(r, 0));
             const s = this.createSchedule(initialSchedule);
-            const score = this.calculateScore(s);
+            const score = this.calculateScore(s, initialSchedule);
             if (score < minScore) {
                 best = s;
                 minScore = score;
@@ -245,14 +311,20 @@ class FastScheduler {
         return best;
     }
 
-    private calculateScore(s: GeneratedSchedule): number {
-        const errs = validateFullSchedule(s, this.clients, this.therapists, this.selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, this.callouts);
+    private calculateScore(s: GeneratedSchedule, initialSchedule?: GeneratedSchedule): number {
+        const otherDayEntries = initialSchedule ? initialSchedule.filter(e => e.day !== this.day) : [];
+        const fullSchedule = [...otherDayEntries, ...s];
+        const errs = validateFullSchedule(fullSchedule, this.clients, this.therapists, this.insuranceQualifications, this.selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, this.callouts);
         if (errs.length > 0) {
             let p = 10000000; // Higher base penalty for any error
             errs.forEach(e => {
                 if (e.ruleId === "CLIENT_COVERAGE_GAP_AT_TIME") p += 100000; // Extremely high penalty for gaps
                 else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 200000;
-                else if (e.ruleId === "MD_MEDICAID_LIMIT_VIOLATED") p += 500000;
+                else if (e.ruleId === "MAX_PROVIDERS_VIOLATED") p += 500000;
+                else if (e.ruleId === "MAX_WEEKLY_HOURS_VIOLATED") p += 500000;
+                else if (e.ruleId === "MIN_DURATION_VIOLATED") p += 500000;
+                else if (e.ruleId === "MAX_DURATION_VIOLATED") p += 500000;
+                else if (e.ruleId === "MULTIPLE_LUNCHES" || e.ruleId === "LUNCH_OUTSIDE_WINDOW" || e.ruleId === "MISSING_LUNCH_BREAK") p += 500000;
                 else if (e.ruleId === "MAX_NOTES_EXCEEDED") p += 10;
                 else p += 1000;
             });
@@ -260,7 +332,6 @@ class FastScheduler {
         }
         
         let penalty = 0;
-        const ROLE_PRIO: any = { "BCBA": 7, "CF": 6, "STAR 3": 5, "STAR 2": 4, "STAR 1": 3, "RBT": 2, "BT": 1, "Other": 0 };
         const billableTimes = new Map<string, number>();
         s.forEach(e => {
             if (e.sessionType === 'ABA' || e.sessionType.startsWith('AlliedHealth_')) {
@@ -269,9 +340,12 @@ class FastScheduler {
             }
         });
 
-        const data = this.therapists.map(t => ({ p: ROLE_PRIO[t.role] || 0, billable: billableTimes.get(t.id) || 0 }));
+        const data = this.therapists.map(t => ({ p: this.getRoleRank(t.role), billable: billableTimes.get(t.id) || 0 }));
         for (let i = 0; i < data.length; i++) {
             for (let j = 0; j < data.length; j++) {
+                // If therapist i is higher rank (BCBA) than therapist j (BT)
+                // but therapist i has MORE billable time than j, penalize.
+                // We want to preserve 'blank' time for senior staff.
                 if (data[i].p > data[j].p && data[i].billable > data[j].billable) {
                     penalty += (data[i].billable - data[j].billable) * 100;
                 }
@@ -284,13 +358,14 @@ class FastScheduler {
 export async function runCsoAlgorithm(
     clients: Client[],
     therapists: Therapist[],
+    insuranceQualifications: InsuranceQualification[],
     selectedDate: Date,
     callouts: Callout[],
     initialScheduleForOptimization?: GeneratedSchedule
 ): Promise<GAGenerationResult> {
     const day = getDayOfWeekFromDate(selectedDate);
-    const algo = new FastScheduler(clients, therapists, day, selectedDate, callouts);
+    const algo = new FastScheduler(clients, therapists, insuranceQualifications, day, selectedDate, callouts);
     const schedule = await algo.run(initialScheduleForOptimization);
-    const errors = validateFullSchedule(schedule, clients, therapists, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
+    const errors = validateFullSchedule(schedule, clients, therapists, insuranceQualifications, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
     return { schedule, finalValidationErrors: errors, generations: 0, bestFitness: errors.length, success: errors.length === 0, statusMessage: errors.length === 0 ? "Perfect!" : "Nearly Perfect." };
 }

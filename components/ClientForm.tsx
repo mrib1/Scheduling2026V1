@@ -104,7 +104,7 @@ const ClientForm: React.FC<ClientFormProps> = ({ client, availableTeams, availab
         <SearchableMultiSelectDropdown
             id={`client-insurance-reqs-${client.id}`}
             label="Insurance Requirements"
-            options={availableInsuranceQualifications}
+            options={availableInsuranceQualifications.map(q => q.id)}
             selectedOptions={formData.insuranceRequirements}
             onChange={handleInsuranceRequirementsChange}
             placeholder="Search or select requirements..."

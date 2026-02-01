@@ -24,6 +24,17 @@ for (let h = 0; h < 24; h++) {
 }
 
 export const ALL_THERAPIST_ROLES: TherapistRole[] = ["BCBA", "CF", "STAR 3", "STAR 2", "STAR 1", "RBT", "BT", "Other"];
+
+export const DEFAULT_ROLE_RANK: Record<string, number> = {
+  "BCBA": 6,
+  "CF": 5,
+  "STAR 3": 4,
+  "STAR 2": 3,
+  "STAR 1": 2,
+  "RBT": 1,
+  "BT": 0,
+  "Other": -1
+};
 export const ALL_ALLIED_HEALTH_SERVICES: AlliedHealthServiceType[] = ["OT", "SLP"];
 export const ALL_SESSION_TYPES: string[] = ['ABA', 'AlliedHealth_OT', 'AlliedHealth_SLP', 'IndirectTime'];
 

@@ -17,6 +17,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   newSessionSlot,
   clients,
   therapists,
+  insuranceQualifications,
   availableSessionTypes,
   timeSlots: allTimeSlots,
   currentSchedule,
@@ -191,6 +192,29 @@ const SessionModal: React.FC<SessionModalProps> = ({
         setFormError(localErrors);
         return;
     }
+
+    // Min Session Duration Check for Insurance
+    if (formData.clientId) {
+        const client = clients.find(c => c.id === formData.clientId);
+        if (client) {
+            const duration = convertTimeToMinutes(formData.endTime) - convertTimeToMinutes(formData.startTime);
+            client.insuranceRequirements.forEach(reqId => {
+                const qual = insuranceQualifications.find(q => q.id === reqId);
+                if (qual && qual.minSessionDurationMinutes && duration < qual.minSessionDurationMinutes) {
+                    localErrors.push({
+                        ruleId: "MIN_DURATION_VIOLATED",
+                        message: `${reqId} requires at least ${qual.minSessionDurationMinutes} mins. Current: ${duration} mins.`
+                    });
+                }
+            });
+        }
+    }
+
+    if (localErrors.length > 0) {
+        setFormError(localErrors);
+        return;
+    }
+
     onSave(formData);
   };
 

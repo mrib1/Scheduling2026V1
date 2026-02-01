@@ -28,14 +28,22 @@ export interface AlliedHealthNeed {
   specificDays?: DayOfWeek[];
 }
 
+export interface InsuranceQualification {
+  id: string; // Unique identifier/name (e.g., "MD_MEDICAID", "RBT")
+  maxTherapistsPerDay?: number;
+  minSessionDurationMinutes?: number;
+  maxSessionDurationMinutes?: number;
+  maxHoursPerWeek?: number;
+  roleHierarchyOrder?: number;
+}
+
 export interface Client {
   id:string;
   name: string;
   teamId?: string;
   color?: string;
   /**
-   * List of qualifications a therapist must have to work with this client.
-   * "MD_MEDICAID" is a special value checked by the validation rule MD_MEDICAID_LIMIT_VIOLATED.
+   * List of qualifications (IDs) a therapist must have to work with this client.
    */
   insuranceRequirements: string[];
   alliedHealthNeeds: AlliedHealthNeed[];
@@ -75,7 +83,7 @@ export interface ClientFormProps {
   client: Client;
   therapists: Therapist[];
   availableTeams: Team[];
-  availableInsuranceQualifications: string[];
+  availableInsuranceQualifications: InsuranceQualification[];
   onUpdate: (updatedClient: Client) => void;
   onRemove: (clientId: string) => void;
 }
@@ -83,16 +91,16 @@ export interface ClientFormProps {
 export interface TherapistFormProps {
   therapist: Therapist;
   availableTeams: Team[];
-  availableInsuranceQualifications: string[];
+  availableInsuranceQualifications: InsuranceQualification[];
   onUpdate: (updatedTherapist: Therapist) => void;
   onRemove: (therapistId: string) => void;
 }
 
 export interface SettingsPanelProps {
   availableTeams: Team[];
-  availableInsuranceQualifications: string[];
+  availableInsuranceQualifications: InsuranceQualification[];
   onUpdateTeams: (updatedTeams: Team[]) => void;
-  onUpdateInsuranceQualifications: (updatedIQs: string[]) => void;
+  onUpdateInsuranceQualifications: (updatedIQs: InsuranceQualification[]) => void;
 }
 
 export interface ScheduleViewProps {
@@ -121,6 +129,7 @@ export interface SessionModalProps {
   newSessionSlot: { therapistId: string; therapistName: string; startTime: string; day: DayOfWeek } | null; // If adding new
   clients: Client[];
   therapists: Therapist[];
+  insuranceQualifications: InsuranceQualification[];
   availableSessionTypes: string[];
   timeSlots: string[];
   currentSchedule: GeneratedSchedule;
@@ -208,7 +217,7 @@ export interface AdminSettingsPanelProps {
   availableTeams: Team[];
   onBulkUpdateClients: (file: File, action: 'ADD_UPDATE' | 'REMOVE') => Promise<BulkOperationSummary>;
   onBulkUpdateTherapists: (file: File, action: 'ADD_UPDATE' | 'REMOVE') => Promise<BulkOperationSummary>;
-  onUpdateInsuranceQualifications: (newQualifications: string[]) => void;
+  onUpdateInsuranceQualifications: (newQualifications: InsuranceQualification[]) => void;
 }
 
 export interface GAGenerationResult {
