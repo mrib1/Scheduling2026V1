@@ -1,5 +1,5 @@
 import { Client, Therapist, GeneratedSchedule, DayOfWeek, Callout, GAGenerationResult, ScheduleEntry, SessionType, InsuranceQualification, TherapistRole } from '../types';
-import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, IDEAL_LUNCH_WINDOW_START, IDEAL_LUNCH_WINDOW_END_FOR_START, ALL_THERAPIST_ROLES } from '../constants';
+import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, IDEAL_LUNCH_WINDOW_START, IDEAL_LUNCH_WINDOW_END_FOR_START, ALL_THERAPIST_ROLES, DEFAULT_ROLE_RANK } from '../constants';
 import { validateFullSchedule, timeToMinutes, minutesToTime, sessionsOverlap, isDateAffectedByCalloutRange } from '../utils/validationService';
 
 const SLOT_SIZE = 15;
@@ -44,16 +44,6 @@ class FastScheduler {
     private day: DayOfWeek;
     private selectedDate: Date;
     private callouts: Callout[];
-    private DEFAULT_ROLE_RANK: Record<string, number> = {
-        "BCBA": 6,
-        "CF": 5,
-        "STAR 3": 4,
-        "STAR 2": 3,
-        "STAR 1": 2,
-        "RBT": 1,
-        "BT": 0,
-        "Other": -1
-    };
 
     constructor(clients: Client[], therapists: Therapist[], insuranceQualifications: InsuranceQualification[], day: DayOfWeek, selectedDate: Date, callouts: Callout[]) {
         this.clients = clients;
@@ -69,7 +59,7 @@ class FastScheduler {
         if (metadata && metadata.roleHierarchyOrder !== undefined) {
             return metadata.roleHierarchyOrder;
         }
-        return this.DEFAULT_ROLE_RANK[role] ?? -1;
+        return DEFAULT_ROLE_RANK[role] ?? -1;
     }
 
     private meetsInsurance(t: Therapist, c: Client): boolean {
@@ -101,8 +91,12 @@ class FastScheduler {
         let min = 60; // Default ABA min
         c.insuranceRequirements.forEach(reqId => {
             const q = this.insuranceQualifications.find(qual => qual.id === reqId);
-            if (q && q.minSessionDurationMinutes !== undefined && q.minSessionDurationMinutes > min) {
-                min = q.minSessionDurationMinutes;
+            if (q && q.minSessionDurationMinutes !== undefined) {
+                // If an insurance explicitly specifies a minimum, we should respect it.
+                // If multiple specify, we take the highest.
+                if (q.minSessionDurationMinutes > min) {
+                    min = q.minSessionDurationMinutes;
+                }
             }
         });
         return min;
@@ -154,6 +148,9 @@ class FastScheduler {
         // Pass 1: Lunches
         const shuffledT = this.therapists.map((t, ti) => ({t, ti})).sort(() => Math.random() - 0.5);
         shuffledT.forEach(q => {
+            // Check if already has a lunch or indirect task in the lunch window from initialSchedule
+            if (schedule.some(e => e.therapistId === q.t.id && e.sessionType === 'IndirectTime')) return;
+
             const ls = Math.floor((timeToMinutes(IDEAL_LUNCH_WINDOW_START) - OP_START) / SLOT_SIZE);
             const le = Math.floor((timeToMinutes(IDEAL_LUNCH_WINDOW_END_FOR_START) - OP_START) / SLOT_SIZE);
             const opts = [];
@@ -311,6 +308,8 @@ class FastScheduler {
                 else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 200000;
                 else if (e.ruleId === "MAX_PROVIDERS_VIOLATED") p += 500000;
                 else if (e.ruleId === "MAX_WEEKLY_HOURS_VIOLATED") p += 500000;
+                else if (e.ruleId === "MIN_DURATION_VIOLATED") p += 500000;
+                else if (e.ruleId === "MULTIPLE_LUNCHES" || e.ruleId === "LUNCH_OUTSIDE_WINDOW" || e.ruleId === "MISSING_LUNCH_BREAK") p += 500000;
                 else if (e.ruleId === "MAX_NOTES_EXCEEDED") p += 10;
                 else p += 1000;
             });

@@ -1,6 +1,6 @@
 
 import { ScheduleEntry, GeneratedSchedule, Client, Therapist, DayOfWeek, AlliedHealthServiceType, ValidationError, Callout, InsuranceQualification, TherapistRole } from '../types';
-import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, STAFF_ASSUMED_AVAILABILITY_START, STAFF_ASSUMED_AVAILABILITY_END, LUNCH_COVERAGE_START_TIME, LUNCH_COVERAGE_END_TIME, ALL_THERAPIST_ROLES } from '../constants'; // Use constants
+import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, STAFF_ASSUMED_AVAILABILITY_START, STAFF_ASSUMED_AVAILABILITY_END, LUNCH_COVERAGE_START_TIME, LUNCH_COVERAGE_END_TIME, ALL_THERAPIST_ROLES, DEFAULT_ROLE_RANK } from '../constants'; // Use constants
 
 export const timeToMinutes = (time: string): number => {
   if (!time) return 0;
@@ -33,17 +33,6 @@ export const sessionsOverlap = (
   const start2 = timeToMinutes(entry2Start);
   const end2 = timeToMinutes(entry2End);
   return start1 < end2 && start2 < end1;
-};
-
-const DEFAULT_ROLE_RANK: Record<string, number> = {
-  "BCBA": 6,
-  "CF": 5,
-  "STAR 3": 4,
-  "STAR 2": 3,
-  "STAR 1": 2,
-  "RBT": 1,
-  "BT": 0,
-  "Other": -1
 };
 
 const getRoleRank = (role: string, insuranceQualifications: InsuranceQualification[]) => {
