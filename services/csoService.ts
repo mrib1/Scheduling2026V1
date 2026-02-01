@@ -1,5 +1,5 @@
-import { Client, Therapist, GeneratedSchedule, DayOfWeek, Callout, GAGenerationResult, ScheduleEntry, SessionType } from '../types';
-import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, IDEAL_LUNCH_WINDOW_START, IDEAL_LUNCH_WINDOW_END_FOR_START } from '../constants';
+import { Client, Therapist, GeneratedSchedule, DayOfWeek, Callout, GAGenerationResult, ScheduleEntry, SessionType, InsuranceQualification, TherapistRole } from '../types';
+import { COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, IDEAL_LUNCH_WINDOW_START, IDEAL_LUNCH_WINDOW_END_FOR_START, ALL_THERAPIST_ROLES } from '../constants';
 import { validateFullSchedule, timeToMinutes, minutesToTime, sessionsOverlap, isDateAffectedByCalloutRange } from '../utils/validationService';
 
 const SLOT_SIZE = 15;
@@ -40,20 +40,55 @@ class BitTracker {
 class FastScheduler {
     private clients: Client[];
     private therapists: Therapist[];
+    private insuranceQualifications: InsuranceQualification[];
     private day: DayOfWeek;
     private selectedDate: Date;
     private callouts: Callout[];
+    private ROLE_RANK: Record<string, number> = { "BCBA": 0, "CF": 1, "STAR 3": 2, "STAR 2": 3, "STAR 1": 4, "RBT": 5, "BT": 6, "Other": 7 };
 
-    constructor(clients: Client[], therapists: Therapist[], day: DayOfWeek, selectedDate: Date, callouts: Callout[]) {
+    constructor(clients: Client[], therapists: Therapist[], insuranceQualifications: InsuranceQualification[], day: DayOfWeek, selectedDate: Date, callouts: Callout[]) {
         this.clients = clients;
         this.therapists = therapists;
+        this.insuranceQualifications = insuranceQualifications;
         this.day = day;
         this.selectedDate = selectedDate;
         this.callouts = callouts;
     }
 
-    private meetsInsurance(t: Therapist, c: Client) {
-        return c.insuranceRequirements.every(r => t.qualifications.includes(r));
+    private meetsInsurance(t: Therapist, c: Client): boolean {
+        if (c.insuranceRequirements.length === 0) return true;
+        return c.insuranceRequirements.every(reqId => {
+            if (t.qualifications.includes(reqId)) return true;
+            if (ALL_THERAPIST_ROLES.includes(reqId as TherapistRole)) {
+                const requiredRank = this.ROLE_RANK[reqId] ?? 99;
+                const therapistRank = this.ROLE_RANK[t.role] ?? 99;
+                return therapistRank <= requiredRank;
+            }
+            if (t.role === reqId) return true;
+            return false;
+        });
+    }
+
+    private getMaxProviders(c: Client): number {
+        let max = Infinity;
+        c.insuranceRequirements.forEach(reqId => {
+            const q = this.insuranceQualifications.find(qual => qual.id === reqId);
+            if (q && q.maxTherapistsPerDay !== undefined && q.maxTherapistsPerDay < max) {
+                max = q.maxTherapistsPerDay;
+            }
+        });
+        return max;
+    }
+
+    private getMinDuration(c: Client): number {
+        let min = 60; // Default ABA min
+        c.insuranceRequirements.forEach(reqId => {
+            const q = this.insuranceQualifications.find(qual => qual.id === reqId);
+            if (q && q.minSessionDurationMinutes !== undefined && q.minSessionDurationMinutes > min) {
+                min = q.minSessionDurationMinutes;
+            }
+        });
+        return min;
     }
 
     public createSchedule(initialSchedule?: GeneratedSchedule): GeneratedSchedule {
@@ -138,8 +173,9 @@ class FastScheduler {
                                 const reqQual = need.type === 'OT' ? "OT Certified" : "SLP Certified";
                                 if (!x.t.qualifications.includes(reqQual)) return false;
                                 if (!tracker.isTFree(x.ti, s, len)) return false;
-                                // Medicaid limit check
-                                if (target.c.insuranceRequirements.includes("MD_MEDICAID") && tracker.cT[target.ci].size >= 3 && !tracker.cT[target.ci].has(x.ti)) return false;
+                                // Insurance provider limit check
+                                const maxP = this.getMaxProviders(target.c);
+                                if (tracker.cT[target.ci].size >= maxP && !tracker.cT[target.ci].has(x.ti)) return false;
                                 return true;
                             })
                             .sort((a, b) => (ROLE_RANK[b.t.role] || 0) - (ROLE_RANK[a.t.role] || 0));
@@ -177,11 +213,13 @@ class FastScheduler {
                     });
 
                     for (const q of quals) {
-                        // Check Medicaid limit
-                        if (tracker.cT[target.ci].size >= 3 && !tracker.cT[target.ci].has(q.ti) && target.c.insuranceRequirements.includes("MD_MEDICAID")) continue;
+                        // Check provider limit
+                        const maxP = this.getMaxProviders(target.c);
+                        if (tracker.cT[target.ci].size >= maxP && !tracker.cT[target.ci].has(q.ti)) continue;
 
-                        // Try session lengths from 3h down to 1h
-                        for (let len = 12; len >= 4; len--) {
+                        // Try session lengths from 3h down to min required
+                        const minLenSlots = Math.ceil(this.getMinDuration(target.c) / SLOT_SIZE);
+                        for (let len = 12; len >= minLenSlots; len--) {
                             if (s + len <= NUM_SLOTS && tracker.isCFree(target.ci, s, len) && tracker.isTFree(q.ti, s, len)) {
                                 // Heuristic: Avoid leaving small unfillable gaps (< 1h)
                                 let gapAfter = 0;
@@ -246,13 +284,14 @@ class FastScheduler {
     }
 
     private calculateScore(s: GeneratedSchedule): number {
-        const errs = validateFullSchedule(s, this.clients, this.therapists, this.selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, this.callouts);
+        const errs = validateFullSchedule(s, this.clients, this.therapists, this.insuranceQualifications, this.selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, this.callouts);
         if (errs.length > 0) {
             let p = 10000000; // Higher base penalty for any error
             errs.forEach(e => {
                 if (e.ruleId === "CLIENT_COVERAGE_GAP_AT_TIME") p += 100000; // Extremely high penalty for gaps
                 else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 200000;
-                else if (e.ruleId === "MD_MEDICAID_LIMIT_VIOLATED") p += 500000;
+                else if (e.ruleId === "MAX_PROVIDERS_VIOLATED") p += 500000;
+                else if (e.ruleId === "MAX_WEEKLY_HOURS_VIOLATED") p += 500000;
                 else if (e.ruleId === "MAX_NOTES_EXCEEDED") p += 10;
                 else p += 1000;
             });
@@ -284,13 +323,14 @@ class FastScheduler {
 export async function runCsoAlgorithm(
     clients: Client[],
     therapists: Therapist[],
+    insuranceQualifications: InsuranceQualification[],
     selectedDate: Date,
     callouts: Callout[],
     initialScheduleForOptimization?: GeneratedSchedule
 ): Promise<GAGenerationResult> {
     const day = getDayOfWeekFromDate(selectedDate);
-    const algo = new FastScheduler(clients, therapists, day, selectedDate, callouts);
+    const algo = new FastScheduler(clients, therapists, insuranceQualifications, day, selectedDate, callouts);
     const schedule = await algo.run(initialScheduleForOptimization);
-    const errors = validateFullSchedule(schedule, clients, therapists, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
+    const errors = validateFullSchedule(schedule, clients, therapists, insuranceQualifications, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
     return { schedule, finalValidationErrors: errors, generations: 0, bestFitness: errors.length, success: errors.length === 0, statusMessage: errors.length === 0 ? "Perfect!" : "Nearly Perfect." };
 }

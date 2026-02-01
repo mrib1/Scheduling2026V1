@@ -1,7 +1,8 @@
 import { supabase } from '../lib/supabase';
+import { InsuranceQualification } from '../types';
 
-let _qualifications: string[] = [];
-const listeners: Array<(qualifications: string[]) => void> = [];
+let _qualifications: InsuranceQualification[] = [];
+const listeners: Array<(qualifications: InsuranceQualification[]) => void> = [];
 const SETTINGS_KEY = 'insurance_qualifications';
 
 const notifyListeners = () => {
@@ -19,9 +20,24 @@ const loadQualifications = async () => {
     if (error) throw error;
 
     if (data && data.value) {
-      _qualifications = Array.isArray(data.value) ? data.value : [];
+      const rawValue = Array.isArray(data.value) ? data.value : [];
+      // Migration: Convert string array to InsuranceQualification objects
+      _qualifications = rawValue.map((item: any) => {
+        if (typeof item === 'string') {
+          return {
+            id: item,
+            maxTherapistsPerDay: item === 'MD_MEDICAID' ? 3 : undefined
+          };
+        }
+        return item as InsuranceQualification;
+      });
     } else {
-      _qualifications = ['RBT', 'BCBA', 'Clinical Fellow', 'MD_MEDICAID'];
+      _qualifications = [
+        { id: 'BCBA' },
+        { id: 'Clinical Fellow' },
+        { id: 'MD_MEDICAID', maxTherapistsPerDay: 3 },
+        { id: 'RBT' }
+      ];
       await supabase
         .from('settings')
         .insert({
@@ -30,7 +46,7 @@ const loadQualifications = async () => {
         });
     }
 
-    _qualifications = Array.from(new Set(_qualifications)).sort((a, b) => a.localeCompare(b));
+    _qualifications = _qualifications.sort((a, b) => a.id.localeCompare(b.id));
     notifyListeners();
   } catch (error) {
     console.error("Error loading qualifications from Supabase:", error);
@@ -56,19 +72,19 @@ const setupRealtimeSubscription = () => {
 
 setupRealtimeSubscription();
 
-export const getInsuranceQualifications = (): string[] => {
+export const getInsuranceQualifications = (): InsuranceQualification[] => {
   return [..._qualifications];
 };
 
-export const updateInsuranceQualifications = async (updatedQualifications: string[]): Promise<string[]> => {
+export const updateInsuranceQualifications = async (updatedQualifications: InsuranceQualification[]): Promise<InsuranceQualification[]> => {
   try {
-    const uniqueSortedQualifications = Array.from(new Set(updatedQualifications)).sort((a, b) => a.localeCompare(b));
+    const sortedQualifications = [...updatedQualifications].sort((a, b) => a.id.localeCompare(b.id));
 
     const { error } = await supabase
       .from('settings')
       .upsert({
         key: SETTINGS_KEY,
-        value: uniqueSortedQualifications,
+        value: sortedQualifications,
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'key'
@@ -84,7 +100,7 @@ export const updateInsuranceQualifications = async (updatedQualifications: strin
   }
 };
 
-export const subscribeToInsuranceQualifications = (listener: (qualifications: string[]) => void): (() => void) => {
+export const subscribeToInsuranceQualifications = (listener: (qualifications: InsuranceQualification[]) => void): (() => void) => {
   listeners.push(listener);
   listener([..._qualifications]);
 

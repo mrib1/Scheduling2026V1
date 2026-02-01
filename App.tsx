@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Client, Therapist, TherapistRole, GeneratedSchedule, DayOfWeek, Team, ScheduleEntry, SessionType, BaseScheduleConfig, ValidationError, Callout, CalloutFormValues, AlliedHealthNeed, BulkOperationSummary } from './types';
+import { Client, Therapist, TherapistRole, GeneratedSchedule, DayOfWeek, Team, ScheduleEntry, SessionType, BaseScheduleConfig, ValidationError, Callout, CalloutFormValues, AlliedHealthNeed, BulkOperationSummary, InsuranceQualification } from './types';
 import { DAYS_OF_WEEK, PALETTE_ICON_SVG, TEAM_COLORS, ALL_THERAPIST_ROLES, ALL_SESSION_TYPES, TIME_SLOTS_H_MM, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END } from './constants';
 import ClientForm from './components/ClientForm';
 import TherapistForm from './components/TherapistForm';
@@ -49,7 +49,7 @@ const formatCalloutDateDisplay = (startDateString: string, endDateString: string
 
 const App: React.FC = () => {
   const [availableTeams, setAvailableTeams] = useState<Team[]>(teamService.getTeams());
-  const [availableInsuranceQualifications, setAvailableInsuranceQualifications] = useState<string[]>(settingsService.getInsuranceQualifications());
+  const [availableInsuranceQualifications, setAvailableInsuranceQualifications] = useState<InsuranceQualification[]>(settingsService.getInsuranceQualifications());
   const [clients, setClients] = useState<Client[]>(clientService.getClients());
   const [therapists, setTherapists] = useState<Therapist[]>(therapistService.getTherapists());
   const [baseSchedules, setBaseSchedules] = useState<BaseScheduleConfig[]>(baseScheduleService.getBaseSchedules());
@@ -116,7 +116,7 @@ const App: React.FC = () => {
   const handleUpdateTherapist = (updatedTherapist: Therapist) => therapistService.updateTherapist(updatedTherapist);
   const handleRemoveTherapist = (therapistId: string) => therapistService.removeTherapist(therapistId);
   const handleUpdateTeams = (updatedTeams: Team[]) => teamService.updateTeams(updatedTeams);
-  const handleUpdateInsuranceQualifications = (updatedIQs: string[]) => settingsService.updateInsuranceQualifications(updatedIQs);
+  const handleUpdateInsuranceQualifications = (updatedIQs: InsuranceQualification[]) => settingsService.updateInsuranceQualifications(updatedIQs);
 
 
   const handleDateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,7 +162,7 @@ const App: React.FC = () => {
 
     setSchedule(newUpdatedSchedule);
 
-    const validationErrors = validateFullSchedule(newUpdatedSchedule, clients, therapists, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
+    const validationErrors = validateFullSchedule(newUpdatedSchedule, clients, therapists, availableInsuranceQualifications, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
     if (validationErrors.length > 0) {
       setError(validationErrors);
     } else {
@@ -201,7 +201,7 @@ const App: React.FC = () => {
     setSchedule(newUpdatedSchedule);
 
     if (selectedDate) {
-        const validationErrors = validateFullSchedule(newUpdatedSchedule, clients, therapists, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
+        const validationErrors = validateFullSchedule(newUpdatedSchedule, clients, therapists, availableInsuranceQualifications, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
         if (validationErrors.length > 0) {
             setError(validationErrors);
         } else {
@@ -228,7 +228,7 @@ const App: React.FC = () => {
 
     // FIX: Validate independently
     if (selectedDate) {
-      const validationErrors = validateFullSchedule(newUpdatedSchedule, clients, therapists, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
+      const validationErrors = validateFullSchedule(newUpdatedSchedule, clients, therapists, availableInsuranceQualifications, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
       if (validationErrors.length > 0) {
           setError(validationErrors);
       } else {
@@ -274,7 +274,7 @@ const App: React.FC = () => {
       setSelectedDate(newSelectedDate || today);
 
       if (newSelectedDate) {
-          const validationErrors = validateFullSchedule(scheduleWithIds, clients, therapists, newSelectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
+          const validationErrors = validateFullSchedule(scheduleWithIds, clients, therapists, availableInsuranceQualifications, newSelectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
           if (validationErrors.length > 0) {
               setError(validationErrors);
           } else {
@@ -321,7 +321,7 @@ const App: React.FC = () => {
 
     try {
       // Use CSO Algorithm from service
-      const result = await runCsoAlgorithm(clients, therapists, selectedDate, callouts);
+      const result = await runCsoAlgorithm(clients, therapists, availableInsuranceQualifications, selectedDate, callouts);
       
       const scheduleWithIds = result.schedule ? result.schedule.map(entry => ({...entry, id: entry.id || generateScheduleEntryId() })) : [];
       setSchedule(scheduleWithIds);
@@ -352,7 +352,7 @@ const App: React.FC = () => {
     
     try {
        // Pass current schedule to seed the population
-       const result = await runCsoAlgorithm(clients, therapists, selectedDate, callouts, schedule);
+       const result = await runCsoAlgorithm(clients, therapists, availableInsuranceQualifications, selectedDate, callouts, schedule);
        
        const scheduleWithIds = result.schedule ? result.schedule.map(entry => ({...entry, id: entry.id || generateScheduleEntryId() })) : [];
        setSchedule(scheduleWithIds);
@@ -440,8 +440,13 @@ const App: React.FC = () => {
         if (action === 'ADD_UPDATE' && clientsToProcess.length > 0) { const result = await clientService.addOrUpdateBulkClients(clientsToProcess); summary.addedCount = result.addedCount; summary.updatedCount = result.updatedCount; }
         else if (action === 'REMOVE' && clientNamesToRemove.length > 0) { const result = await clientService.removeClientsByNames(clientNamesToRemove); summary.removedCount = result.removedCount; }
         const currentIQs = settingsService.getInsuranceQualifications();
-        const allIQs = Array.from(new Set([...currentIQs, ...Array.from(newInsuranceRequirementsFound)]));
-        if (allIQs.length > currentIQs.length) { settingsService.updateInsuranceQualifications(allIQs); summary.newlyAddedSettings!.insuranceRequirements = Array.from(newInsuranceRequirementsFound).filter(iq => !currentIQs.includes(iq)); }
+        const currentIQNames = currentIQs.map(q => q.id);
+        const newIQNames = Array.from(newInsuranceRequirementsFound).filter(name => !currentIQNames.includes(name));
+        if (newIQNames.length > 0) {
+            const allIQs = [...currentIQs, ...newIQNames.map(name => ({ id: name }))];
+            settingsService.updateInsuranceQualifications(allIQs);
+            summary.newlyAddedSettings!.insuranceRequirements = newIQNames;
+        }
     } catch (e: any) { summary.errors.push({ rowNumber: 0, message: `File processing error: ${e.message}` }); summary.errorCount++; }
     finally { setLoadingState({active:false, message:''}); setBulkOperationSummary(summary); }
     return summary;
@@ -480,8 +485,13 @@ const App: React.FC = () => {
         if (action === 'ADD_UPDATE' && therapistsToProcess.length > 0) { const result = await therapistService.addOrUpdateBulkTherapists(therapistsToProcess); summary.addedCount = result.addedCount; summary.updatedCount = result.updatedCount; }
         else if (action === 'REMOVE' && therapistNamesToRemove.length > 0) { const result = await therapistService.removeTherapistsByNames(therapistNamesToRemove); summary.removedCount = result.removedCount; }
         const currentIQs = settingsService.getInsuranceQualifications();
-        const allCombinedQuals = Array.from(new Set([...currentIQs, ...Array.from(newQualificationsFound)]));
-        if (allCombinedQuals.length > currentIQs.length) { settingsService.updateInsuranceQualifications(allCombinedQuals); summary.newlyAddedSettings!.qualifications = Array.from(newQualificationsFound).filter(iq => !currentIQs.includes(iq)); }
+        const currentIQNames = currentIQs.map(q => q.id);
+        const newIQNames = Array.from(newInsuranceRequirementsFound).filter(name => !currentIQNames.includes(name));
+        if (newIQNames.length > 0) {
+            const allCombinedQuals = [...currentIQs, ...newIQNames.map(name => ({ id: name }))];
+            settingsService.updateInsuranceQualifications(allCombinedQuals);
+            summary.newlyAddedSettings!.qualifications = newIQNames;
+        }
     } catch (e: any) { summary.errors.push({ rowNumber: 0, message: `File processing error: ${e.message}` }); summary.errorCount++; }
     finally { setLoadingState({active:false, message:''}); setBulkOperationSummary(summary); }
     return summary;
@@ -554,7 +564,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {isSessionModalOpen && ( <SessionModal isOpen={isSessionModalOpen} onClose={handleCloseSessionModal} onSave={handleSaveSession} onDelete={sessionToEdit ? handleDeleteSession : undefined} sessionData={sessionToEdit} newSessionSlot={newSessionSlotDetails} clients={clients} therapists={therapists} availableSessionTypes={ALL_SESSION_TYPES} timeSlots={TIME_SLOTS_H_MM} currentSchedule={schedule || []} currentError={error} clearError={() => setError(null)} /> )}
+      {isSessionModalOpen && ( <SessionModal isOpen={isSessionModalOpen} onClose={handleCloseSessionModal} onSave={handleSaveSession} onDelete={sessionToEdit ? handleDeleteSession : undefined} sessionData={sessionToEdit} newSessionSlot={newSessionSlotDetails} clients={clients} therapists={therapists} insuranceQualifications={availableInsuranceQualifications} availableSessionTypes={ALL_SESSION_TYPES} timeSlots={TIME_SLOTS_H_MM} currentSchedule={schedule || []} currentError={error} clearError={() => setError(null)} /> )}
       <footer className="bg-blue-700 text-blue-100 py-4 text-center text-sm"> <p>&copy; {new Date().getFullYear()} ABA Harmony Scheduler. AI Enhanced Scheduling.</p> </footer>
     </div>
   );
