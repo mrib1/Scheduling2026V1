@@ -104,12 +104,14 @@ class FastScheduler {
 
     private getMaxDuration(c: Client): number {
         let max = 180; // Default ABA max
+        let customSet = false;
         c.insuranceRequirements.forEach(reqId => {
             const q = this.insuranceQualifications.find(qual => qual.id === reqId);
             if (q && q.maxSessionDurationMinutes !== undefined) {
-                // If multiple specify, we take the lowest to be safe.
-                if (q.maxSessionDurationMinutes < max) {
+                // If this is the first custom limit we see, or it's lower than the current limit, use it.
+                if (!customSet || q.maxSessionDurationMinutes < max) {
                     max = q.maxSessionDurationMinutes;
+                    customSet = true;
                 }
             }
         });
@@ -145,8 +147,16 @@ class FastScheduler {
                 const ci = this.clients.findIndex(c => c.id === entry.clientId);
                 const s = Math.max(0, Math.floor((timeToMinutes(entry.startTime) - OP_START) / SLOT_SIZE));
                 const l = Math.ceil((timeToMinutes(entry.endTime) - timeToMinutes(entry.startTime)) / SLOT_SIZE);
+
                 if (ti >= 0 && (ci >= 0 || entry.clientId === null) && tracker.isTFree(ti, s, l) && (ci < 0 || tracker.isCFree(ci, s, l))) {
-                    if (ci >= 0 && !this.meetsInsurance(this.therapists[ti], this.clients[ci])) return;
+                    if (ci >= 0) {
+                        if (!this.meetsInsurance(this.therapists[ti], this.clients[ci])) return;
+
+                        // Enforce Max Duration even for initial sessions (allows fixing invalid sessions)
+                        const durationMinutes = timeToMinutes(entry.endTime) - timeToMinutes(entry.startTime);
+                        if (durationMinutes > this.getMaxDuration(this.clients[ci])) return;
+                    }
+
                     schedule.push({ ...entry, id: generateId() });
                     tracker.book(ti, ci, s, l);
                     if (entry.sessionType === 'ABA' || entry.sessionType.startsWith('AlliedHealth_')) tSessionCount[ti]++;

@@ -211,7 +211,16 @@ export const validateSessionEntry = (
   const duration = endTimeMinutes - startTimeMinutes;
   if (sessionType === 'ABA') {
     if (duration < 60) errors.push({ ruleId: "ABA_DURATION_TOO_SHORT", message: "ABA session must be at least 60 minutes." });
-    if (duration > 180) errors.push({ ruleId: "ABA_DURATION_TOO_LONG", message: "ABA session cannot exceed 180 minutes." });
+
+    const clientData = clients.find(c => c.id === clientId);
+    const hasCustomMax = clientData?.insuranceRequirements.some(reqId => {
+        const q = insuranceQualifications.find(qual => qual.id === reqId);
+        return q && q.maxSessionDurationMinutes !== undefined;
+    });
+
+    if (!hasCustomMax && duration > 180) {
+        errors.push({ ruleId: "ABA_DURATION_TOO_LONG", message: "ABA session cannot exceed default maximum of 180 minutes. Set a custom 'Max Session' in Insurance settings to allow longer sessions." });
+    }
   } else if (sessionType === 'AlliedHealth_OT' || sessionType === 'AlliedHealth_SLP') {
     if (duration <= 0) errors.push({ ruleId: "ALLIED_HEALTH_DURATION_INVALID", message: `${sessionType} session must have positive duration.` });
   } else if (sessionType === 'IndirectTime') { 
