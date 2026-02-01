@@ -80,7 +80,7 @@ const TherapistForm: React.FC<TherapistFormProps> = ({ therapist, availableTeams
         <SearchableMultiSelectDropdown
             id={`therapist-qualifications-${therapist.id}`}
             label="Qualifications/Roles"
-            options={availableInsuranceQualifications}
+            options={availableInsuranceQualifications.map(q => q.id)}
             selectedOptions={formData.qualifications}
             onChange={handleQualificationsChange}
             placeholder="Search or select qualifications..."
