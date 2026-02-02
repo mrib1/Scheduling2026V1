@@ -32,7 +32,6 @@ export interface InsuranceQualification {
   id: string; // Unique identifier/name (e.g., "MD_MEDICAID", "RBT")
   maxTherapistsPerDay?: number;
   minSessionDurationMinutes?: number;
-  maxSessionDurationMinutes?: number;
   maxHoursPerWeek?: number;
   roleHierarchyOrder?: number;
 }

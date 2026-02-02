@@ -169,7 +169,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Role Hierarchy</th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Max Providers/Day</th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Min Session (Min)</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Max Session (Min)</th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Max Hours/Week</th>
                   <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -210,15 +209,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                         type="number"
                         value={iq.minSessionDurationMinutes ?? ''}
                         onChange={(e) => handleUpdateIQField(iq.id, 'minSessionDurationMinutes', e.target.value)}
-                        className="w-20 text-sm border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="N/A"
-                      />
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <input
-                        type="number"
-                        value={iq.maxSessionDurationMinutes ?? ''}
-                        onChange={(e) => handleUpdateIQField(iq.id, 'maxSessionDurationMinutes', e.target.value)}
                         className="w-20 text-sm border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                         placeholder="N/A"
                       />

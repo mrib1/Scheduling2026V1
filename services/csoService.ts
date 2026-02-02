@@ -46,7 +46,7 @@ export class FastScheduler {
     private callouts: Callout[];
     private otherDayEntries: GeneratedSchedule;
 
-    constructor(clients: Client[], therapists: Therapist[], insuranceQualifications: InsuranceQualification[], day: DayOfWeek, selectedDate: Date, callouts: Callout[], initialSchedule?: GeneratedSchedule) {
+    constructor(clients: Client[], therapists: Therapist[], insuranceQualifications: InsuranceQualification[], day: DayOfWeek, selectedDate: Date, callouts: Callout[]) {
         this.clients = clients;
         this.therapists = therapists;
         this.insuranceQualifications = insuranceQualifications;
@@ -91,45 +91,17 @@ export class FastScheduler {
 
     private getMinDuration(c: Client): number {
         let min = 60; // Default ABA min
-        let foundCustom = false;
         c.insuranceRequirements.forEach(reqId => {
             const q = this.insuranceQualifications.find(qual => qual.id === reqId);
-            if (q && q.minSessionDurationMinutes !== undefined && q.minSessionDurationMinutes > 0) {
-                // Use the most restrictive (highest) custom minimum session duration.
-                if (!foundCustom || q.minSessionDurationMinutes > min) {
+            if (q && q.minSessionDurationMinutes !== undefined) {
+                // If an insurance explicitly specifies a minimum, we should respect it.
+                // If multiple specify, we take the highest.
+                if (q.minSessionDurationMinutes > min) {
                     min = q.minSessionDurationMinutes;
-                    foundCustom = true;
                 }
             }
         });
         return min;
-    }
-
-    private getMaxDuration(c: Client): number {
-        let max = 180; // Default ABA max
-        let foundCustom = false;
-        c.insuranceRequirements.forEach(reqId => {
-            const q = this.insuranceQualifications.find(qual => qual.id === reqId);
-            if (q && q.maxSessionDurationMinutes !== undefined && q.maxSessionDurationMinutes > 0) {
-                // Use the most restrictive (lowest) custom maximum session duration.
-                if (!foundCustom || q.maxSessionDurationMinutes < max) {
-                    max = q.maxSessionDurationMinutes;
-                    foundCustom = true;
-                }
-            }
-        });
-        return max;
-    }
-
-    private getMaxWeeklyMinutes(c: Client): number {
-        let max = Infinity;
-        c.insuranceRequirements.forEach(reqId => {
-            const q = this.insuranceQualifications.find(qual => qual.id === reqId);
-            if (q && q.maxHoursPerWeek !== undefined) {
-                if (q.maxHoursPerWeek * 60 < max) max = q.maxHoursPerWeek * 60;
-            }
-        });
-        return max;
     }
 
     public createSchedule(initialSchedule?: GeneratedSchedule): GeneratedSchedule {
@@ -289,15 +261,10 @@ export class FastScheduler {
                         const maxP = this.getMaxProviders(target.c);
                         if (tracker.cT[target.ci].size >= maxP && !tracker.cT[target.ci].has(q.ti)) continue;
 
-                        // Try session lengths from max down to min required
+                        // Try session lengths from max (3h or required min) down to min required
                         const minLenSlots = Math.ceil(this.getMinDuration(target.c) / SLOT_SIZE);
-                        const maxAllowedLenSlots = Math.floor(this.getMaxDuration(target.c) / SLOT_SIZE);
-                        const remainingMins = this.getMaxWeeklyMinutes(target.c) - (clientMinutes.get(target.ci) || 0);
-                        const remainingSlots = Math.floor(remainingMins / SLOT_SIZE);
-
-                        const startLenSlots = Math.min(maxAllowedLenSlots, remainingSlots);
-
-                        for (let len = startLenSlots; len >= minLenSlots; len--) {
+                        const maxLenSlots = Math.max(12, minLenSlots);
+                        for (let len = maxLenSlots; len >= minLenSlots; len--) {
                             if (s + len <= NUM_SLOTS && tracker.isCFree(target.ci, s, len) && tracker.isTFree(q.ti, s, len)) {
                                 // Heuristic: Avoid leaving small unfillable gaps (< required min session duration)
                                 let gapAfter = 0;
@@ -377,9 +344,8 @@ export class FastScheduler {
                 else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 200000;
                 else if (e.ruleId === "MAX_PROVIDERS_VIOLATED") p += 500000;
                 else if (e.ruleId === "MAX_WEEKLY_HOURS_VIOLATED") p += 500000;
-                else if (e.ruleId === "MIN_DURATION_VIOLATED" || e.ruleId === "ABA_DURATION_TOO_SHORT") p += 2000000;
-                else if (e.ruleId === "MAX_DURATION_VIOLATED" || e.ruleId === "ABA_DURATION_TOO_LONG") p += 2000000;
-                else if (e.ruleId === "MULTIPLE_LUNCHES" || e.ruleId === "LUNCH_OUTSIDE_WINDOW" || e.ruleId === "MISSING_LUNCH_BREAK") p += 1000000;
+                else if (e.ruleId === "MIN_DURATION_VIOLATED") p += 500000;
+                else if (e.ruleId === "MULTIPLE_LUNCHES" || e.ruleId === "LUNCH_OUTSIDE_WINDOW" || e.ruleId === "MISSING_LUNCH_BREAK") p += 500000;
                 else if (e.ruleId === "MAX_NOTES_EXCEEDED") p += 10;
                 else p += 1000;
             });
@@ -419,7 +385,7 @@ export async function runCsoAlgorithm(
     initialScheduleForOptimization?: GeneratedSchedule
 ): Promise<GAGenerationResult> {
     const day = getDayOfWeekFromDate(selectedDate);
-    const algo = new FastScheduler(clients, therapists, insuranceQualifications, day, selectedDate, callouts, initialScheduleForOptimization);
+    const algo = new FastScheduler(clients, therapists, insuranceQualifications, day, selectedDate, callouts);
     const schedule = await algo.run(initialScheduleForOptimization);
     const errors = validateFullSchedule(schedule, clients, therapists, insuranceQualifications, selectedDate, COMPANY_OPERATING_HOURS_START, COMPANY_OPERATING_HOURS_END, callouts);
     return { schedule, finalValidationErrors: errors, generations: 0, bestFitness: errors.length, success: errors.length === 0, statusMessage: errors.length === 0 ? "Perfect!" : "Nearly Perfect." };

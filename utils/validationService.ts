@@ -164,25 +164,16 @@ export const validateSessionEntry = (
             }
         }
 
-        // Min/Max Session Duration Check
+        // Min Session Duration Check
         const duration = endTimeMinutes - startTimeMinutes;
         clientData.insuranceRequirements.forEach(reqId => {
             const qual = insuranceQualifications.find(q => q.id === reqId);
-            if (qual) {
-              if (qual.minSessionDurationMinutes && duration < qual.minSessionDurationMinutes) {
+            if (qual && qual.minSessionDurationMinutes && duration < qual.minSessionDurationMinutes) {
                 errors.push({
                     ruleId: "MIN_DURATION_VIOLATED",
                     message: `Session for ${clientName} is ${duration} mins, but ${reqId} requires at least ${qual.minSessionDurationMinutes} mins.`,
                     details: { entryId: entryToValidate.id }
                 });
-              }
-              if (qual.maxSessionDurationMinutes && duration > qual.maxSessionDurationMinutes) {
-                errors.push({
-                    ruleId: "MAX_DURATION_VIOLATED",
-                    message: `Session for ${clientName} is ${duration} mins, but ${reqId} allows at most ${qual.maxSessionDurationMinutes} mins.`,
-                    details: { entryId: entryToValidate.id }
-                });
-              }
             }
         });
     }
@@ -407,7 +398,7 @@ export const validateFullSchedule = (
 
       // 1. Max Providers Per Day (Checked for each day present in the schedule)
       const daysToValidate = Array.from(new Set(scheduleToValidate.map(s => s.day)));
-      
+
       daysToValidate.forEach(day => {
           const clientSessionsOnDay = scheduleToValidate.filter(s => s.clientId === client.id && s.day === day);
 
