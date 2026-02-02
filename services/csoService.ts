@@ -37,7 +37,7 @@ class BitTracker {
     }
 }
 
-class FastScheduler {
+export class FastScheduler {
     private clients: Client[];
     private therapists: Therapist[];
     private insuranceQualifications: InsuranceQualification[];
@@ -285,11 +285,11 @@ class FastScheduler {
 
                         // Try session lengths from max down to min required
                         const minLenSlots = Math.ceil(this.getMinDuration(target.c) / SLOT_SIZE);
-                        const maxAllowedLenSlots = Math.ceil(this.getMaxDuration(target.c) / SLOT_SIZE);
+                        const maxAllowedLenSlots = Math.floor(this.getMaxDuration(target.c) / SLOT_SIZE);
                         const remainingMins = this.getMaxWeeklyMinutes(target.c) - (clientMinutes.get(target.ci) || 0);
                         const remainingSlots = Math.floor(remainingMins / SLOT_SIZE);
 
-                        const startLenSlots = Math.min(maxAllowedLenSlots, remainingSlots, Math.max(12, minLenSlots));
+                        const startLenSlots = Math.min(maxAllowedLenSlots, remainingSlots);
 
                         for (let len = startLenSlots; len >= minLenSlots; len--) {
                             if (s + len <= NUM_SLOTS && tracker.isCFree(target.ci, s, len) && tracker.isTFree(q.ti, s, len)) {
