@@ -91,13 +91,14 @@ export class FastScheduler {
 
     private getMinDuration(c: Client): number {
         let min = 60; // Default ABA min
+        let foundCustom = false;
         c.insuranceRequirements.forEach(reqId => {
             const q = this.insuranceQualifications.find(qual => qual.id === reqId);
-            if (q && q.minSessionDurationMinutes !== undefined) {
-                // If an insurance explicitly specifies a minimum, we should respect it.
-                // If multiple specify, we take the highest.
-                if (q.minSessionDurationMinutes > min) {
+            if (q && q.minSessionDurationMinutes !== undefined && q.minSessionDurationMinutes > 0) {
+                // Use the most restrictive (highest) custom minimum session duration.
+                if (!foundCustom || q.minSessionDurationMinutes > min) {
                     min = q.minSessionDurationMinutes;
+                    foundCustom = true;
                 }
             }
         });
@@ -106,14 +107,14 @@ export class FastScheduler {
 
     private getMaxDuration(c: Client): number {
         let max = 180; // Default ABA max
-        let customSet = false;
+        let foundCustom = false;
         c.insuranceRequirements.forEach(reqId => {
             const q = this.insuranceQualifications.find(qual => qual.id === reqId);
-            if (q && q.maxSessionDurationMinutes !== undefined) {
-                // If this is the first custom limit we see, or it's lower than the current limit, use it.
-                if (!customSet || q.maxSessionDurationMinutes < max) {
+            if (q && q.maxSessionDurationMinutes !== undefined && q.maxSessionDurationMinutes > 0) {
+                // Use the most restrictive (lowest) custom maximum session duration.
+                if (!foundCustom || q.maxSessionDurationMinutes < max) {
                     max = q.maxSessionDurationMinutes;
-                    customSet = true;
+                    foundCustom = true;
                 }
             }
         });
@@ -175,6 +176,9 @@ export class FastScheduler {
                         // Enforce Max Duration even for initial sessions (allows fixing invalid sessions)
                         const durationMinutes = timeToMinutes(entry.endTime) - timeToMinutes(entry.startTime);
                         if (durationMinutes > this.getMaxDuration(this.clients[ci])) return;
+
+                        // Enforce BTB rule for initial sessions
+                        if (this.isBTB(schedule, entry.clientId!, entry.therapistId, s, l)) return;
                     }
 
                     schedule.push({ ...entry, id: generateId() });
@@ -221,9 +225,11 @@ export class FastScheduler {
                 if (need.specificDays && !need.specificDays.includes(this.day)) return;
                 const len = Math.ceil(need.durationMinutes / SLOT_SIZE);
 
-                // Weekly Limit Check
+                // Weekly and Duration Limit Check
                 const currentMins = clientMinutes.get(target.ci) || 0;
+                const maxD = this.getMaxDuration(target.c);
                 if (currentMins + (len * SLOT_SIZE) > this.getMaxWeeklyMinutes(target.c)) return;
+                if (len * SLOT_SIZE > maxD) return;
 
                 const type: SessionType = `AlliedHealth_${need.type}` as SessionType;
                 const slots = [];
@@ -303,6 +309,10 @@ export class FastScheduler {
                                 if (gapAfter > 0 && gapAfter < minLenSlots) continue;
 
                                 if (this.isBTB(schedule, target.c.id, q.t.id, s, len)) continue;
+
+                                // Final duration safety check
+                                if (len * SLOT_SIZE > maxAllowedLenSlots * SLOT_SIZE) continue;
+
                                 schedule.push(this.ent(target.ci, q.ti, s, len, 'ABA'));
                                 tracker.book(q.ti, target.ci, s, len);
                                 tSessionCount[q.ti]++;
@@ -367,9 +377,9 @@ export class FastScheduler {
                 else if (e.ruleId === "THERAPIST_TIME_CONFLICT" || e.ruleId === "CLIENT_TIME_CONFLICT") p += 200000;
                 else if (e.ruleId === "MAX_PROVIDERS_VIOLATED") p += 500000;
                 else if (e.ruleId === "MAX_WEEKLY_HOURS_VIOLATED") p += 500000;
-                else if (e.ruleId === "MIN_DURATION_VIOLATED") p += 500000;
-                else if (e.ruleId === "MAX_DURATION_VIOLATED") p += 500000;
-                else if (e.ruleId === "MULTIPLE_LUNCHES" || e.ruleId === "LUNCH_OUTSIDE_WINDOW" || e.ruleId === "MISSING_LUNCH_BREAK") p += 500000;
+                else if (e.ruleId === "MIN_DURATION_VIOLATED" || e.ruleId === "ABA_DURATION_TOO_SHORT") p += 2000000;
+                else if (e.ruleId === "MAX_DURATION_VIOLATED" || e.ruleId === "ABA_DURATION_TOO_LONG") p += 2000000;
+                else if (e.ruleId === "MULTIPLE_LUNCHES" || e.ruleId === "LUNCH_OUTSIDE_WINDOW" || e.ruleId === "MISSING_LUNCH_BREAK") p += 1000000;
                 else if (e.ruleId === "MAX_NOTES_EXCEEDED") p += 10;
                 else p += 1000;
             });
